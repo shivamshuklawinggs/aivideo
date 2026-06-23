@@ -1,0 +1,6 @@
+qwen3.5:14b
+llama3.2:latest
+mistral
+deepseek-r1:14b
+qwen3-coder
+gemma3
