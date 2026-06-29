@@ -6,8 +6,8 @@ import logger from '../config/logger';
 
 // Generate JWT tokens
 const generateTokens = (userId: string) => {
-  const token = jwt.sign({ userId }, process.env.JWT_SECRET!, { expiresIn: '7d' });
-  const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET!, { expiresIn: '30d' });
+  const token = jwt.sign({ userId }, process.env.JWT_SECRET!, { expiresIn: '365d' });
+  const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET!, { expiresIn: '365d' });
   return { token, refreshToken };
 };
 
@@ -141,7 +141,7 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
   try {
     // In a real implementation, you might want to invalidate the token
     // For now, we'll just return success
-    logger.info(`User logged out: ${(req as any).user?.email}`);
+    logger.info(`User logged out: ${req.user?.email}`);
     
     res.json({
       success: true,
@@ -197,7 +197,7 @@ export const refreshToken = async (req: Request, res: Response, next: NextFuncti
 // Update profile
 export const updateProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { name, preferences } = req.body;
 
     const user = await User.findById(userId);
@@ -237,7 +237,7 @@ export const updateProfile = async (req: Request, res: Response, next: NextFunct
 // Change password
 export const changePassword = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { currentPassword, newPassword } = req.body;
 
     const user = await User.findById(userId);

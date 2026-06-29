@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import GeneratedVideo from '../models/GeneratedVideo';
 import RenderJob from '../models/RenderJob';
 import logger from '../config/logger';
+import { rabbitMQQueueManager } from '../queues/RabbitMQQueueManager';
 
 // Get videos for user
 export const fetchVideos = async (req: Request, res: Response, next: NextFunction) => {
@@ -9,7 +10,7 @@ export const fetchVideos = async (req: Request, res: Response, next: NextFunctio
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 12;
     const status = req.query.status as string;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const query: any = { userId };
     if (status) {
@@ -45,7 +46,7 @@ export const fetchVideos = async (req: Request, res: Response, next: NextFunctio
 export const fetchVideoById = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
 
@@ -69,7 +70,7 @@ export const fetchVideoById = async (req: Request, res: Response, next: NextFunc
 // Generate video
 export const generateVideo = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { webtoonId, chapterId, voiceProfileId, config } = req.body;
 
     const video = new GeneratedVideo({
@@ -107,9 +108,7 @@ export const generateVideo = async (req: Request, res: Response, next: NextFunct
     await video.save();
 
     // Trigger video generation job
-    const queueManager = await import('../queues/QueueManager');
-    
-    await queueManager.queueManager.addGenerateVideoJob({
+    await rabbitMQQueueManager.addGenerateVideoJob({
       videoId: video._id,
       webtoonId,
       chapterId,
@@ -135,7 +134,7 @@ export const generateVideo = async (req: Request, res: Response, next: NextFunct
 export const updateVideo = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const updates = req.body;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
@@ -170,7 +169,7 @@ export const updateVideo = async (req: Request, res: Response, next: NextFunctio
 export const deleteVideo = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
     if (!video) {
@@ -201,7 +200,7 @@ export const deleteVideo = async (req: Request, res: Response, next: NextFunctio
 export const renderVideo = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { resolution, format, fps } = req.body;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
@@ -213,9 +212,7 @@ export const renderVideo = async (req: Request, res: Response, next: NextFunctio
     }
 
     // Trigger video rendering job
-    const queueManager = await import('../queues/QueueManager');
-    
-    await queueManager.queueManager.addRenderVideoJob({
+    await rabbitMQQueueManager.addRenderVideoJob({
       videoId: id,
       resolution: resolution || '1080p',
       format: format || 'mp4',
@@ -241,7 +238,7 @@ export const fetchRenderJobs = async (req: Request, res: Response, next: NextFun
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 12;
     const status = req.query.status as string;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const query: any = { userId };
     if (status) {
@@ -278,7 +275,7 @@ export const fetchRenderJobs = async (req: Request, res: Response, next: NextFun
 export const fetchRenderJobById = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { jobId } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const renderJob = await RenderJob.findOne({ _id: jobId, userId })
       .populate('videoId', 'title');
@@ -304,7 +301,7 @@ export const fetchRenderJobById = async (req: Request, res: Response, next: Next
 export const updateRenderJob = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { jobId } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const updates = req.body;
 
     const renderJob = await RenderJob.findOne({ _id: jobId, userId });
@@ -333,7 +330,7 @@ export const updateRenderJob = async (req: Request, res: Response, next: NextFun
 export const deleteRenderJob = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { jobId } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const renderJob = await RenderJob.findOne({ _id: jobId, userId });
     if (!renderJob) {
@@ -361,7 +358,7 @@ export const deleteRenderJob = async (req: Request, res: Response, next: NextFun
 export const fetchScenes = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
     if (!video) {
@@ -385,7 +382,7 @@ export const fetchScenes = async (req: Request, res: Response, next: NextFunctio
 export const updateScenes = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { scenes } = req.body;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
@@ -414,7 +411,7 @@ export const updateScenes = async (req: Request, res: Response, next: NextFuncti
 export const updateVideoConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { config } = req.body;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
@@ -443,7 +440,7 @@ export const updateVideoConfig = async (req: Request, res: Response, next: NextF
 export const generatePreview = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
     if (!video) {
@@ -454,9 +451,7 @@ export const generatePreview = async (req: Request, res: Response, next: NextFun
     }
 
     // Trigger preview generation job
-    const queueManager = await import('../queues/QueueManager');
-    
-    await queueManager.queueManager.addGenerateVideoJob({
+    await rabbitMQQueueManager.addGenerateVideoJob({
       videoId: id,
       isPreview: true,
       userId,
@@ -478,7 +473,7 @@ export const generatePreview = async (req: Request, res: Response, next: NextFun
 export const exportVideo = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { resolution, format } = req.body;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
@@ -490,9 +485,7 @@ export const exportVideo = async (req: Request, res: Response, next: NextFunctio
     }
 
     // Trigger export job
-    const queueManager = await import('../queues/QueueManager');
-    
-    await queueManager.queueManager.addRenderVideoJob({
+    await rabbitMQQueueManager.addRenderVideoJob({
       videoId: id,
       resolution: resolution || '1080p',
       format: format || 'mp4',
@@ -516,7 +509,7 @@ export const exportVideo = async (req: Request, res: Response, next: NextFunctio
 export const getVideoStats = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
     if (!video) {
@@ -549,7 +542,7 @@ export const getVideoStats = async (req: Request, res: Response, next: NextFunct
 export const likeVideo = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const video = await GeneratedVideo.findOne({ _id: id, userId });
     if (!video) {
@@ -577,7 +570,7 @@ export const likeVideo = async (req: Request, res: Response, next: NextFunction)
 export const shareVideo = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     // Note: isPublic property would be used if model supported it
     // const { isPublic } = req.body;
 
@@ -607,7 +600,7 @@ export const shareVideo = async (req: Request, res: Response, next: NextFunction
 export const duplicateVideo = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const originalVideo = await GeneratedVideo.findOne({ _id: id, userId });
     if (!originalVideo) {

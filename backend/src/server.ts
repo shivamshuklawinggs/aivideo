@@ -8,13 +8,13 @@ import cookieParser from 'cookie-parser';
 import database from './config/database';
 import logger from './config/logger';
 import errorHandler from './middlewares/errorHandler';
-import { connectRedis } from './config/redisConnection';
 import { swaggerUi, specs } from './config/swagger';
 import AuthRoutes from './routes/auth';
 import WebtoonRoutes from './routes/webtoon';
 import VoiceRoutes from './routes/voice';
 import VideoRoutes from './routes/video';
 import ModelRoutes from './routes/models';
+import { initializeRabbitMQSystem } from './config/rabbitmq';
 
 dotenv.config();
 
@@ -63,9 +63,12 @@ app.use('/api/models', ModelRoutes);
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
+  swaggerOptions: {
+    persistAuthorization: true,
+  },
   explorer: true,
   customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'AI Webtoon Story Explainer API Documentation',
+  customSiteTitle: 'API Documentation',
 }));
 
 // 404 handler
@@ -83,9 +86,9 @@ const startServer = async () => {
     await database.connect();
     logger.info('Database connected successfully');
 
-    // Connect to Redis
-   await connectRedis();
-    logger.info('Redis connected successfully');
+    // Connect to RabbitMQ
+   await initializeRabbitMQSystem();
+    logger.info('RabbitMQ connected successfully');
 
     app.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);

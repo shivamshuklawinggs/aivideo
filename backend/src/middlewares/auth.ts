@@ -2,14 +2,17 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import User, { IUser } from '../models/User';
 import logger from '../config/logger';
-
-export interface AuthRequest extends Request {
-  user?: IUser;
-  userId?: string;
+declare global {
+  namespace Express {
+    interface Request {
+      user?: IUser;
+      userId?: string;
+    }
+  }
 }
 
 export const protect = async (
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
@@ -32,10 +35,10 @@ export const protect = async (
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as {
-        id: string;
+        userId: string;
       };
-
-      const user = await User.findById(decoded.id).select('-password');
+      console.log("decoded", decoded)
+      const user = await User.findById(decoded.userId).select('-password');
 
       if (!user) {
         res.status(401).json({
@@ -73,7 +76,7 @@ export const protect = async (
 };
 
 export const authorize = (...roles: string[]) => {
-  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({
         success: false,
@@ -95,7 +98,7 @@ export const authorize = (...roles: string[]) => {
 };
 
 export const checkSubscription = (requiredPlan: string[]) => {
-  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({
         success: false,

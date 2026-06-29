@@ -37,6 +37,12 @@ export const updateChapterSchema = z.object({
   chapterNumber: z.coerce.number().int().min(1).optional(),
 });
 
+export const createChapterSchema = z.object({
+  title: z.string().min(1, 'Title is required').optional(),
+  description: z.string().optional(),
+  chapterNumber: z.coerce.number().int().min(1).optional(),
+});
+
 export const generateScriptSchema = z.object({
   webtoonId: z.string().min(1, 'Webtoon ID is required'),
   chapterId: z.string().optional(),

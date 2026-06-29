@@ -7,6 +7,7 @@ import {
   deleteWebtoon,
   fetchChapters,
   fetchChapterById,
+  createChapter,
   updateChapter,
   deleteChapter,
   fetchPanels,
@@ -24,6 +25,7 @@ import {
   uploadWebtoonSchema,
   updateWebtoonSchema,
   chapterIdSchema,
+  createChapterSchema,
   updateChapterSchema,
   generateScriptSchema,
   updateMetadataSchema,
@@ -367,6 +369,88 @@ router.delete('/:id', authenticate, validate(webtoonIdSchema, 'params'), deleteW
  *                             type: string
  */
 router.get('/:webtoonId/chapters', validate(webtoonParamsSchema, 'params'), fetchChapters);
+
+/**
+ * @swagger
+ * /api/webtoons/{webtoonId}/chapters:
+ *   post:
+ *     summary: Create a new chapter
+ *     tags: [Webtoons]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: webtoonId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Webtoon ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: Chapter title (optional, will auto-generate if not provided)
+ *               description:
+ *                 type: string
+ *                 description: Chapter description (optional)
+ *               chapterNumber:
+ *                 type: integer
+ *                 minimum: 1
+ *                 description: Chapter number (optional, will auto-increment if not provided)
+ *     responses:
+ *       201:
+ *         description: Chapter created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     chapter:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         title:
+ *                           type: string
+ *                         chapterNumber:
+ *                           type: integer
+ *                         description:
+ *                           type: string
+ *       400:
+ *         description: Bad request - validation error or chapter number already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Webtoon not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/:webtoonId/chapters', authenticate, validateMultiple({
+  params: webtoonParamsSchema,
+  body: createChapterSchema,
+}), createChapter);
 
 /**
  * @swagger

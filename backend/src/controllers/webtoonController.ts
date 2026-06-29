@@ -1,9 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-import Webtoon from '../models/Webtoon';
+import fs from 'fs';
+import Webtoon, { IWebtoon } from '../models/Webtoon';
 import Chapter from '../models/Chapter';
 import Panel from '../models/Panel';
 import GeneratedScript from '../models/GeneratedScript';
 import logger from '../config/logger';
+import { Document } from 'mongoose';
+import { rabbitMQQueueManager } from '../queues/RabbitMQQueueManager';
+import { withTransactionRetry } from '../utils/database';
+import { addUploadedFile, addCreatedFolder, createUploadsDir } from '../utils/fileCleanup';
 
 // Get webtoons (paginated, with search)
 export const fetchWebtoons = async (req: Request, res: Response, next: NextFunction) => {
@@ -11,7 +16,7 @@ export const fetchWebtoons = async (req: Request, res: Response, next: NextFunct
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 12;
     const search = req.query.search as string || '';
-    const userId = (req as any).user?.id;
+    const userId = req.user?.id;
 
     const query: any = {};
     if (userId) {
@@ -85,7 +90,7 @@ export const fetchWebtoonById = async (req: Request, res: Response, next: NextFu
 // Upload webtoon
 export const uploadWebtoon = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { title, description, author, genres, tags } = req.body;
     const archiveFile = req.file;
 
@@ -96,37 +101,58 @@ export const uploadWebtoon = async (req: Request, res: Response, next: NextFunct
       });
     }
 
-    // Create webtoon record
-    const webtoon = new Webtoon({
-      title,
-      description,
-      author,
-      genres: genres || [],
-      tags: tags || [],
-      userId,
-      archivePath: archiveFile.path,
-      status: 'processing',
-      isPublic: false,
-      views: 0,
+    // Track uploaded file for cleanup on error
+    addUploadedFile(req, {
+      path: archiveFile.path,
+      filename: archiveFile.filename,
+      originalname: archiveFile.originalname
     });
 
-    await webtoon.save();
+    // Use transaction for database operations
+    const result = await withTransactionRetry(async (session) => {
+      // Create webtoon record
+      const payload :Omit<IWebtoon,keyof Document>= {
+        title,
+        description,
+        author,
+        genres: genres || [],
+        tags: tags || [],
+        userId,
+        archiveFileName: archiveFile.originalname,
+        archiveFilePath: archiveFile.path,
+        archiveFileSize: archiveFile.size,
+        status: "ongoing",
+        isPublic: false,
+        views: 0,
+        totalChapters: 0,
+        metadata: {
+          totalPanels: undefined,
+          averagePanelsPerChapter: undefined,
+          estimatedReadTime: undefined
+        },
+        isProcessed: false,
+        processingStatus: 'completed',
+        processingProgress: 0,
+      };
+      
+      const webtoon = new Webtoon(payload);
+      await webtoon.save({ session });
 
-    // Trigger comic extraction job
-    const queueManager = await import('../queues/QueueManager');
-    
-    await queueManager.queueManager.addExtractComicJob({
-      webtoonId: webtoon._id,
-      archivePath: archiveFile.path,
-      userId,
+      // Trigger background job after successful transaction
+      await rabbitMQQueueManager.addExtractComicJob({
+        webtoonId: webtoon._id,
+        archivePath: archiveFile.path,
+        userId,
+      });
+
+      logger.info(`Webtoon uploaded: ${title} by user ${userId}`);
+      return webtoon;
     });
-
-    logger.info(`Webtoon uploaded: ${title} by user ${userId}`);
 
     return res.status(201).json({
       success: true,
       message: 'Webtoon uploaded successfully',
-      data: { webtoon },
+      data: { webtoon: result },
     });
   } catch (error: any) {
     logger.error('Upload webtoon error:', error);
@@ -138,7 +164,7 @@ export const uploadWebtoon = async (req: Request, res: Response, next: NextFunct
 export const updateWebtoon = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const updates = req.body;
 
     const webtoon = await Webtoon.findOne({ _id: id, userId });
@@ -167,7 +193,7 @@ export const updateWebtoon = async (req: Request, res: Response, next: NextFunct
 export const deleteWebtoon = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const webtoon = await Webtoon.findOne({ _id: id, userId });
     if (!webtoon) {
@@ -244,7 +270,7 @@ export const fetchChapterById = async (req: Request, res: Response, next: NextFu
 export const updateChapter = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { webtoonId, chapterId } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const updates = req.body;
 
     // Verify ownership
@@ -282,7 +308,7 @@ export const updateChapter = async (req: Request, res: Response, next: NextFunct
 export const deleteChapter = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { webtoonId, chapterId } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     // Verify ownership
     const webtoon = await Webtoon.findOne({ _id: webtoonId, userId });
@@ -342,7 +368,7 @@ export const generateScript = async (req: Request, res: Response, next: NextFunc
   try {
     const { webtoonId } = req.params;
     const { chapterId, voiceProfileId, options } = req.body;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     // Verify ownership
     const webtoon = await Webtoon.findOne({ _id: webtoonId, userId });
@@ -354,9 +380,7 @@ export const generateScript = async (req: Request, res: Response, next: NextFunc
     }
 
     // Trigger script generation job
-    const queueManager = await import('../queues/QueueManager');
-    
-    await queueManager.queueManager.addGenerateScriptJob({
+    await rabbitMQQueueManager.addGenerateScriptJob({
       webtoonId,
       chapterId,
       voiceProfileId,
@@ -380,7 +404,7 @@ export const generateScript = async (req: Request, res: Response, next: NextFunc
 export const updateMetadata = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const updates = req.body;
 
     const webtoon = await Webtoon.findOne({ _id: id, userId });
@@ -409,7 +433,7 @@ export const updateMetadata = async (req: Request, res: Response, next: NextFunc
 export const togglePublic = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const webtoon = await Webtoon.findOne({ _id: id, userId });
     if (!webtoon) {
@@ -456,6 +480,120 @@ export const incrementViews = async (req: Request, res: Response, next: NextFunc
     });
   } catch (error: any) {
     logger.error('Increment views error:', error);
+    return next(error);
+  }
+};
+
+// Create new chapter (optimized for 4GB RAM with transactions)
+export const createChapter = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { webtoonId } = req.params;
+    const { title, description, chapterNumber } = req.body;
+    const userId = req.user?.id;
+
+    // Use transaction for all database operations
+    const result = await withTransactionRetry(async (session) => {
+      // Step 1: Validate webtoon exists and belongs to user
+      const webtoon = await Webtoon.findOne({ _id: webtoonId, userId })
+        .select('_id totalChapters')
+        .session(session);
+      
+      if (!webtoon) {
+        throw new Error('Webtoon not found');
+      }
+
+      // Step 2: Determine chapter number and sequence
+      let nextChapterNumber = chapterNumber;
+      let nextSequence = 1;
+      
+      if (!nextChapterNumber) {
+        const lastChapter = await Chapter.findOne({ webtoonId })
+          .select('chapterNumber sequence')
+          .sort({ chapterNumber: -1 })
+          .session(session)
+          .lean();
+        nextChapterNumber = lastChapter ? lastChapter.chapterNumber + 1 : 1;
+        nextSequence = lastChapter ? lastChapter.sequence + 1 : 1;
+      } else {
+        // Get the next sequence number for the given chapter number
+        const lastSequence = await Chapter.findOne({ webtoonId })
+          .select('sequence')
+          .sort({ sequence: -1 })
+          .session(session)
+          .lean();
+        nextSequence = lastSequence ? lastSequence.sequence + 1 : 1;
+      }
+
+      // Step 3: Check if chapter number already exists
+      const existingChapter = await Chapter.findOne({
+        webtoonId,
+        chapterNumber: nextChapterNumber,
+      }).select('_id').session(session).lean();
+
+      if (existingChapter) {
+        throw new Error('Chapter number already exists');
+      }
+
+      // Step 4: Create folder path in uploads directory and clean if exists
+      const folderPath = createUploadsDir('chapters', webtoonId, nextChapterNumber.toString());
+      
+      // Clean if exists (createUploadsDir already handles creation)
+      if (fs.existsSync(folderPath)) {
+        fs.rmSync(folderPath, { recursive: true, force: true });
+        // Recreate after cleanup
+        fs.mkdirSync(folderPath, { recursive: true });
+      }
+      
+      // Track created folder for cleanup on error
+      addCreatedFolder(req, folderPath);
+
+      // Step 6: Create new chapter with minimal memory footprint
+      const chapter = new Chapter({
+        webtoonId,
+        title: title || `Chapter ${nextChapterNumber}`,
+        description: description || '',
+        chapterNumber: nextChapterNumber,
+        sequence: nextSequence,
+        panels: [], // Start with empty array to save memory
+        isProcessed: false,
+        processingStatus: 'pending',
+        processingProgress: 0,
+        userId: userId,
+        folderPath: folderPath,
+      });
+
+      // Step 7: Save chapter to database within transaction
+      await chapter.save({ session });
+
+      // Step 8: Update webtoon chapter count efficiently within transaction
+      await Webtoon.updateOne(
+        { _id: webtoonId },
+        { $inc: { totalChapters: 1 } },
+        { session }
+      );
+
+      logger.info(`Chapter created: ${chapter._id} for webtoon: ${webtoonId}`);
+      return chapter;
+    });
+
+    // Return minimal data to reduce memory usage
+    return res.status(201).json({
+      success: true,
+      message: 'Chapter created successfully',
+      data: { 
+        chapter: {
+          _id: result._id,
+          title: result.title,
+          chapterNumber: result.chapterNumber,
+          sequence: result.sequence,
+          description: result.description,
+          webtoonId: result.webtoonId,
+          folderPath: result.folderPath
+        }
+      },
+    });
+  } catch (error: any) {
+    logger.error('Create chapter error:', error);
     return next(error);
   }
 };

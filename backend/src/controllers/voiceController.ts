@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import VoiceProfile from '../models/VoiceProfile';
 import logger from '../config/logger';
+import { rabbitMQQueueManager } from '../queues/RabbitMQQueueManager';
 
 // Get voice profiles for user
 export const fetchVoiceProfiles = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 12;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const voiceProfiles = await VoiceProfile.find({ userId })
       .sort({ createdAt: -1 })
@@ -38,7 +39,7 @@ export const fetchVoiceProfiles = async (req: Request, res: Response, next: Next
 export const fetchVoiceProfileById = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const voiceProfile = await VoiceProfile.findOne({ _id: id, userId });
 
@@ -62,7 +63,7 @@ export const fetchVoiceProfileById = async (req: Request, res: Response, next: N
 // Upload voice sample
 export const uploadVoiceSample = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const voiceFile = req.file;
 
     if (!voiceFile) {
@@ -73,9 +74,7 @@ export const uploadVoiceSample = async (req: Request, res: Response, next: NextF
     }
 
     // Trigger voice processing job
-    const queueManager = await import('../queues/QueueManager');
-    
-    await queueManager.queueManager.addGenerateVoiceJob({
+    await rabbitMQQueueManager.addGenerateVoiceJob({
       voiceSamplePath: voiceFile.path,
       userId,
       filename: voiceFile.originalname,
@@ -100,7 +99,7 @@ export const uploadVoiceSample = async (req: Request, res: Response, next: NextF
 // Create voice profile
 export const createVoiceProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { name, description, voiceSamplePath } = req.body;
 
     const voiceProfile = new VoiceProfile({
@@ -132,7 +131,7 @@ export const createVoiceProfile = async (req: Request, res: Response, next: Next
 export const updateVoiceProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const updates = req.body;
 
     const voiceProfile = await VoiceProfile.findOne({ _id: id, userId });
@@ -169,7 +168,7 @@ export const updateVoiceProfile = async (req: Request, res: Response, next: Next
 export const deleteVoiceProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
 
     const voiceProfile = await VoiceProfile.findOne({ _id: id, userId });
     if (!voiceProfile) {
@@ -197,7 +196,7 @@ export const deleteVoiceProfile = async (req: Request, res: Response, next: Next
 export const cloneVoiceProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { name } = req.body;
 
     const originalProfile = await VoiceProfile.findOne({ _id: id, userId });
@@ -239,7 +238,7 @@ export const cloneVoiceProfile = async (req: Request, res: Response, next: NextF
 export const testVoiceProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const { text } = req.body;
 
     const voiceProfile = await VoiceProfile.findOne({ _id: id, userId });
@@ -251,9 +250,7 @@ export const testVoiceProfile = async (req: Request, res: Response, next: NextFu
     }
 
     // Trigger voice synthesis job
-    const queueManager = await import('../queues/QueueManager');
-    
-    await queueManager.queueManager.addGenerateVoiceJob({
+    await rabbitMQQueueManager.addGenerateVoiceJob({
       voiceProfileId: id,
       text,
       userId,
@@ -275,7 +272,7 @@ export const testVoiceProfile = async (req: Request, res: Response, next: NextFu
 // Analyze voice sample
 export const analyzeVoiceSample = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const voiceFile = req.file;
 
     if (!voiceFile) {

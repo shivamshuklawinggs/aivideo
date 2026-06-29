@@ -5,9 +5,9 @@ const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'AI Webtoon Story Explainer API',
+      title: 'Explainer API',
       version: '1.0.0',
-      description: 'Backend API for AI Webtoon Story Explainer application',
+      description: 'Backend API for Explainer application',
       contact: {
         name: 'API Support',
         email: 'support@example.com',

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import logger from '../config/logger';
+import { cleanupRequestFiles, CleanupContext } from '../utils/fileCleanup';
 
 export interface CustomError extends Error {
   statusCode?: number;
@@ -8,9 +9,13 @@ export interface CustomError extends Error {
   errors?: Record<string, any>;
 }
 
+export interface CleanupRequest extends Request {
+  cleanupContext?: CleanupContext | null;
+}
+
 const errorHandler = (
   err: CustomError,
-  req: Request,
+  req: CleanupRequest,
   res: Response,
   _next: NextFunction
 ): void => {
@@ -50,6 +55,12 @@ const errorHandler = (
   if (err.name === 'TokenExpiredError') {
     const message = 'Token expired';
     error = { ...error, statusCode: 401, message };
+  }
+
+  // Clean up uploaded files and created folders on any error
+  if (req.cleanupContext) {
+    cleanupRequestFiles(req);
+    logger.info('Cleaned up uploaded files due to error');
   }
 
   res.status(error.statusCode || 500).json({

@@ -27,8 +27,8 @@ export interface IWebtoon extends Document {
   processingStatus: 'pending' | 'extracting' | 'processing' | 'completed' | 'failed';
   processingProgress: number;
   errorMessage?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 const WebtoonSchema = new Schema<IWebtoon>(
