@@ -1,0 +1,64 @@
+{
+  "voiceSamples": [
+    {
+      "id": "narrator_male",
+      "name": "Male Narrator",
+      "description": "Deep male narrator voice suitable for explanations",
+      "gender": "male",
+      "ageRange": "adult",
+      "language": "en-US",
+      "filePath": "/voice-samples/narrator_male.wav",
+      "sampleRate": 44100,
+      "bitrate": 320,
+      "duration": 5.2,
+      "fileSize": 832000,
+      "isDefault": true,
+      "tags": ["narrator", "explanation", "male", "deep"]
+    },
+    {
+      "id": "narrator_female",
+      "name": "Female Narrator", 
+      "description": "Clear female narrator voice suitable for explanations",
+      "gender": "female",
+      "ageRange": "adult",
+      "language": "en-US",
+      "filePath": "/voice-samples/narrator_female.wav",
+      "sampleRate": 44100,
+      "bitrate": 320,
+      "duration": 4.8,
+      "fileSize": 768000,
+      "isDefault": false,
+      "tags": ["narrator", "explanation", "female", "clear"]
+    },
+    {
+      "id": "character_male",
+      "name": "Male Character Voice",
+      "description": "Male character voice with emotional range",
+      "gender": "male", 
+      "ageRange": "young",
+      "language": "en-US",
+      "filePath": "/voice-samples/character_male.wav",
+      "sampleRate": 44100,
+      "bitrate": 320,
+      "duration": 3.5,
+      "fileSize": 560000,
+      "isDefault": false,
+      "tags": ["character", "male", "young", "emotional"]
+    },
+    {
+      "id": "character_female",
+      "name": "Female Character Voice",
+      "description": "Female character voice with emotional range", 
+      "gender": "female",
+      "ageRange": "young",
+      "language": "en-US",
+      "filePath": "/voice-samples/character_female.wav",
+      "sampleRate": 44100,
+      "bitrate": 320,
+      "duration": 4.1,
+      "fileSize": 656000,
+      "isDefault": false,
+      "tags": ["character", "female", "young", "emotional"]
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import {
 } from '../config/aiModels';
 import ModelDownloadManager, { ModelDownloadStatus } from '../config/modelDownload';
 import AIServiceManager, { AIRequest } from './aiServiceManager';
+import VoiceSampleService, { VoiceSample } from './VoiceSampleService';
 
 interface OllamaVisionRequest {
   model: string;
@@ -325,6 +326,104 @@ Return ONLY valid JSON in this exact format:
     } catch (error) {
       logger.error('Script generation error:', error);
       throw new Error('Failed to generate script');
+    }
+  }
+
+  // Voice synthesis methods using VoiceSampleService
+  
+  // Get available voice samples
+  getAvailableVoiceSamples(): VoiceSample[] {
+    return VoiceSampleService.getAllVoiceSamples();
+  }
+
+  // Get voice sample by ID
+  getVoiceSampleById(id: string): VoiceSample | null {
+    return VoiceSampleService.getVoiceSampleById(id);
+  }
+
+  // Get default voice sample
+  getDefaultVoiceSample(): VoiceSample | null {
+    return VoiceSampleService.getDefaultVoiceSample();
+  }
+
+  // Get recommended voice sample for webtoon explanation
+  getRecommendedVoiceSample(context?: {
+    type?: 'narration' | 'character' | 'explanation';
+    gender?: 'male' | 'female';
+    ageRange?: 'young' | 'adult' | 'senior';
+  }): VoiceSample | null {
+    return VoiceSampleService.getRecommendedVoiceSample(context || {
+      type: 'explanation',
+      gender: undefined,
+      ageRange: 'adult'
+    });
+  }
+
+  // Generate voice explanation for webtoon
+  async generateVoiceExplanation(script: string, voiceSampleId?: string): Promise<{
+    audioData: string;
+    voiceSample: any;
+    duration: number;
+  }> {
+    try {
+      // Get voice sample
+      const voiceSample = VoiceSampleService.getVoiceSampleForAI(voiceSampleId);
+      if (!voiceSample) {
+        throw new Error('Voice sample not found');
+      }
+
+      // Get voice sample as base64
+      const voiceSampleData = VoiceSampleService.getVoiceSampleAsBase64(voiceSampleId);
+      if (!voiceSampleData) {
+        throw new Error('Failed to load voice sample data');
+      }
+
+      // For now, return the voice sample data (in a real implementation, 
+      // this would use TTS to generate audio from the script)
+      logger.info(`Generating voice explanation using voice sample: ${voiceSample.name}`);
+      
+      // TODO: Implement actual TTS synthesis using the voice sample
+      // For now, we'll simulate the process
+      const simulatedDuration = script.length * 0.1; // Rough estimate
+      
+      return {
+        audioData: voiceSampleData.data,
+        voiceSample: voiceSampleData.sample,
+        duration: simulatedDuration
+      };
+    } catch (error) {
+      logger.error('Voice explanation generation failed:', error);
+      throw new Error('Failed to generate voice explanation');
+    }
+  }
+
+  // Generate narration script for webtoon panels
+  async generateNarrationScript(panels: any[], webtoonInfo: any): Promise<string> {
+    try {
+      const prompt = `Based on these webtoon panels, create an engaging narration script:
+
+Webtoon: ${webtoonInfo.title}
+Description: ${webtoonInfo.description}
+Genre: ${webtoonInfo.genres?.join(', ')}
+
+Panels:
+${panels.map((panel, index) => 
+  `Panel ${index + 1}: ${panel.metadata?.description || 'Panel description'}`
+).join('\n')}
+
+Create a natural, engaging narration that explains the story flow. Make it sound like a professional narrator explaining a webtoon. Keep it conversational and easy to follow.
+
+Return only the narration script:`;
+
+      const response = await this.generateText(prompt, {
+        task: 'text',
+        model: DEFAULT_MODELS.textGeneration
+      });
+
+      return response;
+    } catch (error) {
+      logger.error('Narration script generation failed:', error);
+      throw new Error('Failed to generate narration script');
     }
   }
 

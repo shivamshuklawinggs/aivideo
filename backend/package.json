@@ -8,6 +8,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "worker": "ts-node src/workers/index.ts",
+    "seed": "ts-node src/scripts/seedWebtoonData.ts",
+    "download-models": "ts-node src/scripts/downloadModels.ts",
     "lint": "eslint . --ext .ts",
     "test": "jest"
   },

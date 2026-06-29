@@ -75,6 +75,60 @@ export const AI_MODELS: Record<string, AIModelConfig> = {
     capabilities: ['text-generation', 'story-writing', 'multilingual', 'script-generation'],
   },
   
+  'llama3.2-latest': {
+    name: 'Llama 3.2 Latest',
+    type: 'text',
+    provider: 'ollama',
+    modelId: 'llama3.2:latest',
+    parameters: {
+      contextLength: 131072,
+      maxTokens: 4096,
+      temperature: 0.7,
+      topP: 0.9,
+      repetitionPenalty: 1.1,
+    },
+    memoryUsage: 8,
+    diskUsage: 4.9,
+    description: 'Meta latest Llama 3.2 model with enhanced capabilities and larger context',
+    capabilities: ['text-generation', 'story-writing', 'dialogue', 'script-generation', 'reasoning'],
+  },
+  
+  'mistral-latest': {
+    name: 'Mistral Latest',
+    type: 'text',
+    provider: 'ollama',
+    modelId: 'mistral:latest',
+    parameters: {
+      contextLength: 32768,
+      maxTokens: 4096,
+      temperature: 0.7,
+      topP: 0.9,
+      repetitionPenalty: 1.1,
+    },
+    memoryUsage: 7,
+    diskUsage: 4.2,
+    description: 'Latest Mistral model with improved performance and capabilities',
+    capabilities: ['text-generation', 'story-writing', 'dialogue', 'script-generation', 'summarization'],
+  },
+  
+  'gemma3-latest': {
+    name: 'Gemma 3 Latest',
+    type: 'text',
+    provider: 'ollama',
+    modelId: 'gemma3:latest',
+    parameters: {
+      contextLength: 8192,
+      maxTokens: 2048,
+      temperature: 0.7,
+      topP: 0.9,
+      repetitionPenalty: 1.1,
+    },
+    memoryUsage: 6,
+    diskUsage: 3.8,
+    description: 'Google latest Gemma 3 model optimized for dialogue and instruction following',
+    capabilities: ['text-generation', 'dialogue', 'instruction-following', 'creative-writing'],
+  },
+  
   'phi3-mini': {
     name: 'Phi-3 Mini',
     type: 'text',
@@ -162,13 +216,13 @@ export const AI_MODELS: Record<string, AIModelConfig> = {
 
 // Default model selections for different tasks
 export const DEFAULT_MODELS = {
-  textGeneration: 'llama3-8b', // Best balance of quality and performance
-  quickText: 'phi3-mini', // Fast for quick tasks
+  textGeneration: 'llama3.2:latest', // Latest Llama 3.2 model
+  quickText: 'phi3:mini', // Fast for quick tasks
   visionAnalysis: 'llava-7b', // Good for image understanding
   quickVision: 'bakllava-1b', // Lightweight vision tasks
   embedding: 'all-minilm', // Efficient embeddings
-  scriptGeneration: 'mistral-7b', // Good for creative writing
-  dialogue: 'qwen2-7b', // Good for character dialogue
+  scriptGeneration: 'mistral:latest', // Latest Mistral model
+  dialogue: 'gemma3:latest', // Latest Gemma 3 model for dialogue
 };
 
 // RAM Tier Configuration
@@ -202,15 +256,15 @@ export const TIERED_MODEL_CONFIGS = {
   },
   [RAM_TIERS.MEDIUM.name]: {
     // 8GB RAM Systems - Balanced performance
-    available: ['phi3-mini', 'mistral-7b', 'qwen2-7b', 'bakllava-1b', 'all-minilm'],
+    available: ['phi3-mini', 'mistral-latest', 'gemma3-latest', 'bakllava-1b', 'all-minilm'],
     defaults: {
-      textGeneration: 'mistral-7b',
+      textGeneration: 'mistral-latest',
       quickText: 'phi3-mini',
       visionAnalysis: 'bakllava-1b',
       quickVision: 'bakllava-1b',
       embedding: 'all-minilm',
-      scriptGeneration: 'mistral-7b',
-      dialogue: 'qwen2-7b',
+      scriptGeneration: 'mistral-latest',
+      dialogue: 'gemma3-latest',
     },
     resourceLimits: {
       maxConcurrentModels: 2,
@@ -221,15 +275,15 @@ export const TIERED_MODEL_CONFIGS = {
   },
   [RAM_TIERS.HIGH.name]: {
     // 16GB RAM Systems - Good performance
-    available: ['phi3-mini', 'mistral-7b', 'qwen2-7b', 'llava-7b', 'bakllava-1b', 'all-minilm'],
+    available: ['phi3-mini', 'llama3.2-latest', 'mistral-latest', 'gemma3-latest', 'llava-7b', 'bakllava-1b', 'all-minilm'],
     defaults: {
-      textGeneration: 'llama3-8b',
+      textGeneration: 'llama3.2-latest',
       quickText: 'phi3-mini',
       visionAnalysis: 'llava-7b',
       quickVision: 'bakllava-1b',
       embedding: 'all-minilm',
-      scriptGeneration: 'mistral-7b',
-      dialogue: 'qwen2-7b',
+      scriptGeneration: 'mistral-latest',
+      dialogue: 'gemma3-latest',
     },
     resourceLimits: {
       maxConcurrentModels: 2,
@@ -240,15 +294,15 @@ export const TIERED_MODEL_CONFIGS = {
   },
   [RAM_TIERS.ULTRA.name]: {
     // 16GB+ RAM Systems - Maximum performance
-    available: ['phi3-mini', 'llama3-8b', 'mistral-7b', 'qwen2-7b', 'llava-7b', 'bakllava-1b', 'all-minilm'],
+    available: ['phi3-mini', 'llama3.2-latest', 'mistral-latest', 'gemma3-latest', 'llava-7b', 'bakllava-1b', 'all-minilm'],
     defaults: {
-      textGeneration: 'llama3-8b',
+      textGeneration: 'llama3.2-latest',
       quickText: 'phi3-mini',
       visionAnalysis: 'llava-7b',
       quickVision: 'bakllava-1b',
       embedding: 'all-minilm',
-      scriptGeneration: 'llama3-8b',
-      dialogue: 'qwen2-7b',
+      scriptGeneration: 'mistral-latest',
+      dialogue: 'gemma3-latest',
     },
     resourceLimits: {
       maxConcurrentModels: 3,

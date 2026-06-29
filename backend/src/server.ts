@@ -10,10 +10,7 @@ import logger from './config/logger';
 import errorHandler from './middlewares/errorHandler';
 import { swaggerUi, specs } from './config/swagger';
 import AuthRoutes from './routes/auth';
-import WebtoonRoutes from './routes/webtoon';
-import VoiceRoutes from './routes/voice';
-import VideoRoutes from './routes/video';
-import ModelRoutes from './routes/models';
+import WebtoonExplainerRoutes from './routes/webtoonExplainer';
 import { initializeRabbitMQSystem } from './config/rabbitmq';
 
 dotenv.config();
@@ -56,10 +53,7 @@ app.get('/', (_req, res) => {
 
 // API Routes
 app.use('/api/auth', AuthRoutes);
-app.use('/api/webtoons', WebtoonRoutes);
-app.use('/api/voice', VoiceRoutes);
-app.use('/api/videos', VideoRoutes);
-app.use('/api/models', ModelRoutes);
+app.use('/api/webtoon-explainer', WebtoonExplainerRoutes);
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {

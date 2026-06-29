@@ -12,7 +12,7 @@ export const voiceIdSchema = z.object({
 export const createVoiceProfileSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
-  voiceSamplePath: z.string().min(1, 'Voice sample path is required'),
+  sampleAudioPath: z.string().min(1, 'Sample audio path is required'),
 });
 
 export const updateVoiceProfileSchema = z.object({
