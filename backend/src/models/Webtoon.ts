@@ -14,17 +14,23 @@ export interface IWebtoon extends Document {
   archiveFilePath: string;
   archiveFileSize: number;
   extractedPath?: string;
+  sourceUrl?: string;
+  sourceType?: 'upload' | 'mangafire' | 'other';
   metadata: {
     totalPanels?: number;
     averagePanelsPerChapter?: number;
     estimatedReadTime?: number;
+    sourceInfo?: any;
+    totalSourceChapters?: number;
+    downloadFormat?: string;
+    downloadQuality?: string;
   };
   tags: string[];
   rating?: number;
   views: number;
   isPublic: boolean;
   isProcessed: boolean;
-  processingStatus: 'pending' | 'extracting' | 'processing' | 'completed' | 'failed';
+  processingStatus: 'pending' | 'downloading' | 'extracting' | 'processing' | 'completed' | 'failed';
   processingProgress: number;
   errorMessage?: string;
   createdAt?: Date;
@@ -87,10 +93,22 @@ const WebtoonSchema = new Schema<IWebtoon>(
     extractedPath: {
       type: String,
     },
+    sourceUrl: {
+      type: String,
+    },
+    sourceType: {
+      type: String,
+      enum: ['upload', 'mangafire', 'other'],
+      default: 'upload'
+    },
     metadata: {
       totalPanels: Number,
       averagePanelsPerChapter: Number,
       estimatedReadTime: Number,
+      sourceInfo: Schema.Types.Mixed,
+      totalSourceChapters: Number,
+      downloadFormat: String,
+      downloadQuality: String,
     },
     tags: {
       type: [String],
@@ -115,7 +133,7 @@ const WebtoonSchema = new Schema<IWebtoon>(
     },
     processingStatus: {
       type: String,
-      enum: ['pending', 'extracting', 'processing', 'completed', 'failed'],
+      enum: ['pending', 'downloading', 'extracting', 'processing', 'completed', 'failed'],
       default: 'pending',
       index: true,
     },

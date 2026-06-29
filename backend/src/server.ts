@@ -11,6 +11,7 @@ import errorHandler from './middlewares/errorHandler';
 import { swaggerUi, specs } from './config/swagger';
 import AuthRoutes from './routes/auth';
 import WebtoonExplainerRoutes from './routes/webtoonExplainer';
+import WebtoonDownloaderRoutes from './routes/webtoonDownloader';
 import { initializeRabbitMQSystem } from './config/rabbitmq';
 
 dotenv.config();
@@ -54,6 +55,7 @@ app.get('/', (_req, res) => {
 // API Routes
 app.use('/api/auth', AuthRoutes);
 app.use('/api/webtoon-explainer', WebtoonExplainerRoutes);
+app.use('/api/webtoon-downloader', WebtoonDownloaderRoutes);
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
