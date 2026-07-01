@@ -5,7 +5,7 @@ node_modules/
 
 # Testing
 coverage/
-
+suwayomi-data/
 # Production
 build/
 dist/

@@ -1,97 +1,12 @@
 version: '3.8'
 
 services:
-  # Existing Ollama service
-  ollama:
-    image: ollama/ollama
+  suwayomi:
+    image: ghcr.io/suwayomi/suwayomi-server:v2.2.2221-preview
+    container_name: suwayomi
     ports:
-      - "11434:11434"
+      - "4567:4567"
     volumes:
-      - ollama_data:/root/.ollama
-    container_name: ollama
+      - ./suwayomi-data:/home/suwayomi/.local/share/Tachidesk
     restart: unless-stopped
-    environment:
-      - OLLAMA_HOST=0.0.0.0
 
-  # MongoDB for the main application
-  mongodb:
-    image: mongo:7
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    container_name: mongodb
-    restart: unless-stopped
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=password
-
-  # RabbitMQ for background processing
-  rabbitmq:
-    image: rabbitmq:3-management
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    container_name: rabbitmq
-    restart: unless-stopped
-    environment:
-      - RABBITMQ_DEFAULT_USER=admin
-      - RABBITMQ_DEFAULT_PASS=password
-
-  # Webtoon Downloader Service
-  webtoon-downloader:
-    build:
-      context: ./docker/webtoon-downloader
-      dockerfile: Dockerfile
-    ports:
-      - "3001:3001"
-    volumes:
-      - ./docker/webtoon-downloader/downloads:/app/downloads
-      - ./docker/webtoon-downloader/logs:/app/logs
-    container_name: webtoon-downloader
-    restart: unless-stopped
-    environment:
-      - PORT=3001
-      - NODE_ENV=production
-    depends_on:
-      - ollama
-    networks:
-      - webtoon-network
-
-  # Main Webtoon Explainer Application
-  webtoon-explainer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./uploads:/app/uploads
-      - ./storage:/app/storage
-    container_name: webtoon-explainer
-    restart: unless-stopped
-    environment:
-      - NODE_ENV=production
-      - PORT=5000
-      - MONGODB_URI=mongodb://admin:password@mongodb:27017/webtoon-explainer?authSource=admin
-      - RABBITMQ_URL=amqp://admin:password@rabbitmq:5672
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - WEBTOON_DOWNLOADER_URL=http://webtoon-downloader:3001
-    depends_on:
-      - mongodb
-      - rabbitmq
-      - ollama
-      - webtoon-downloader
-    networks:
-      - webtoon-network
-
-volumes:
-  ollama_data:
-  mongodb_data:
-  rabbitmq_data:
-
-networks:
-  webtoon-network:
-    driver: bridge
