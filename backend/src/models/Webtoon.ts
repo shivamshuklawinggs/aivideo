@@ -15,7 +15,7 @@ export interface IWebtoon extends Document {
   archiveFileSize: number;
   extractedPath?: string;
   sourceUrl?: string;
-  sourceType?: 'upload' | 'mangafire' | 'other';
+  sourceType?: 'upload' | 'mangafire' | 'tachiyomi' | 'graphql' | 'other';
   metadata: {
     totalPanels?: number;
     averagePanelsPerChapter?: number;
@@ -98,7 +98,7 @@ const WebtoonSchema = new Schema<IWebtoon>(
     },
     sourceType: {
       type: String,
-      enum: ['upload', 'mangafire', 'other'],
+      enum: ['upload', 'mangafire', 'tachiyomi', 'graphql', 'other'],
       default: 'upload'
     },
     metadata: {

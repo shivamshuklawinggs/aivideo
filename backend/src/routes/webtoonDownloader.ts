@@ -226,4 +226,95 @@ router.get('/:webtoonId/status', authenticate, webtoonDownloaderController.getDo
  */
 router.post('/:webtoonId/retry', authenticate, webtoonDownloaderController.retryDownload);
 
+/**
+ * @swagger
+ * /api/webtoon-downloader/search:
+ *   get:
+ *     summary: Search manga using GraphQL API
+ *     tags: [Webtoon Downloader]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: query
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Search query for manga
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Maximum number of results
+ *       - in: query
+ *         name: source
+ *         schema:
+ *           type: string
+ *           enum: [graphql]
+ *         description: Data source (only GraphQL supported for search)
+ *     responses:
+ *       200:
+ *         description: Search results retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     query:
+ *                       type: string
+ *                     results:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/WebtoonInfo'
+ *                     total:
+ *                       type: number
+ *                     source:
+ *                       type: string
+ *       400:
+ *         description: Bad request - query required or invalid source
+ *       503:
+ *         description: GraphQL service unavailable
+ */
+router.get('/search', authenticate, webtoonDownloaderController.searchManga);
+
+/**
+ * @swagger
+ * /api/webtoon-downloader/health:
+ *   get:
+ *     summary: Health check for all downloader services
+ *     tags: [Webtoon Downloader]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Health check completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     mangafire:
+ *                       type: boolean
+ *                     tachiyomi:
+ *                       type: boolean
+ *                     graphql:
+ *                       type: boolean
+ *                     overall:
+ *                       type: boolean
+ *       503:
+ *         description: All services unavailable
+ */
+router.get('/health', authenticate, webtoonDownloaderController.healthCheck);
+
 export default router;
