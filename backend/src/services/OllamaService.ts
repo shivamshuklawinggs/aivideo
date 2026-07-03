@@ -430,7 +430,7 @@ Return only the narration script:`;
   async checkHealth(): Promise<boolean> {
     try {
       const health = await AIServiceManager.checkHealth();
-      return health.ollama || health.openai || health.cohere || health.huggingface || health.local;
+      return health.ollama;
     } catch (error) {
       logger.error('AI service health check failed:', error);
       return false;

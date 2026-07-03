@@ -3,25 +3,32 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IWebtoon extends Document {
   _id: mongoose.Types.ObjectId;
   userId: mongoose.Types.ObjectId;
+  sukuyamiId?: string; // SUKUYAMI manga ID
   title: string;
   description?: string;
   thumbnail?: string;
+  coverImage?: string; // SUKUYAMI cover image URL
   genres: string[];
   author?: string;
   status: 'ongoing' | 'completed' | 'hiatus';
   totalChapters: number;
-  archiveFileName: string;
-  archiveFilePath: string;
-  archiveFileSize: number;
-  extractedPath?: string;
+  lastUpdated?: Date; // Last chapter update from SUKUYAMI
   sourceUrl?: string;
-  sourceType?: 'upload' | 'mangafire' | 'tachiyomi' | 'graphql' | 'other';
+  sourceType: 'sukuyami' | 'upload' | 'mangafire' | 'tachiyomi' | 'graphql' | 'other';
+  sukuyamiData: {
+    totalSourceChapters: number;
+    lastChapterNumber?: number;
+    nextChapterExpected?: Date;
+    popularity?: number;
+    rating?: number;
+    year?: number;
+    alternativeTitles?: string[];
+  };
   metadata: {
     totalPanels?: number;
     averagePanelsPerChapter?: number;
     estimatedReadTime?: number;
     sourceInfo?: any;
-    totalSourceChapters?: number;
     downloadFormat?: string;
     downloadQuality?: string;
   };
@@ -30,7 +37,7 @@ export interface IWebtoon extends Document {
   views: number;
   isPublic: boolean;
   isProcessed: boolean;
-  processingStatus: 'pending' | 'downloading' | 'extracting' | 'processing' | 'completed' | 'failed';
+  processingStatus: 'pending' | 'syncing' | 'processing' | 'completed' | 'failed';
   processingProgress: number;
   errorMessage?: string;
   createdAt?: Date;
@@ -45,6 +52,11 @@ const WebtoonSchema = new Schema<IWebtoon>(
       required: true,
       index: true,
     },
+    sukuyamiId: {
+      type: String,
+      index: true,
+      sparse: true,
+    },
     title: {
       type: String,
       required: [true, 'Webtoon title is required'],
@@ -57,6 +69,9 @@ const WebtoonSchema = new Schema<IWebtoon>(
       maxlength: [2000, 'Description cannot exceed 2000 characters'],
     },
     thumbnail: {
+      type: String,
+    },
+    coverImage: {
       type: String,
     },
     genres: {
@@ -78,28 +93,43 @@ const WebtoonSchema = new Schema<IWebtoon>(
       default: 0,
       min: 0,
     },
-    archiveFileName: {
-      type: String,
-      required: true,
-    },
-    archiveFilePath: {
-      type: String,
-      required: true,
-    },
-    archiveFileSize: {
-      type: Number,
-      required: true,
-    },
-    extractedPath: {
-      type: String,
+    lastUpdated: {
+      type: Date,
     },
     sourceUrl: {
       type: String,
     },
     sourceType: {
       type: String,
-      enum: ['upload', 'mangafire', 'tachiyomi', 'graphql', 'other'],
-      default: 'upload'
+      enum: ['sukuyami', 'upload', 'mangafire', 'tachiyomi', 'graphql', 'other'],
+      default: 'sukuyami'
+    },
+    sukuyamiData: {
+      totalSourceChapters: {
+        type: Number,
+        default: 0,
+      },
+      lastChapterNumber: {
+        type: Number,
+      },
+      nextChapterExpected: {
+        type: Date,
+      },
+      popularity: {
+        type: Number,
+      },
+      rating: {
+        type: Number,
+        min: 0,
+        max: 10,
+      },
+      year: {
+        type: Number,
+      },
+      alternativeTitles: {
+        type: [String],
+        default: [],
+      },
     },
     metadata: {
       totalPanels: Number,
@@ -133,7 +163,7 @@ const WebtoonSchema = new Schema<IWebtoon>(
     },
     processingStatus: {
       type: String,
-      enum: ['pending', 'downloading', 'extracting', 'processing', 'completed', 'failed'],
+      enum: ['pending', 'syncing', 'processing', 'completed', 'failed'],
       default: 'pending',
       index: true,
     },

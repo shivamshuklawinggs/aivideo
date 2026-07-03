@@ -1,8 +1,6 @@
 import { rabbitMQService } from './rabbitmq.service';
 import { initializeConsumers } from './consumers';
-import { rabbitMQQueueManager } from '../../queues/RabbitMQQueueManager';
-import RabbitMQAIWorker from '../../workers/RabbitMQAIWorker';
-import RabbitMQExtractComicWorker from '../../workers/RabbitMQExtractComicWorker';
+// RabbitMQExtractComicWorker removed - replaced by SUKUYAMI integration
 
 /**
  * 🚀 Initialize RabbitMQ System
@@ -39,57 +37,14 @@ export async function initializeRabbitMQSystem(): Promise<void> {
   }
 }
 
-/**
- * 🛑 Gracefully shutdown RabbitMQ system
- */
-export async function shutdownRabbitMQSystem(): Promise<void> {
-  try {
-    console.log('🔄 Shutting down RabbitMQ system...');
 
-    // Close all connections
-    await rabbitMQQueueManager.closeAll();
-    await rabbitMQService.closeConnection();
 
-    console.log('✅ RabbitMQ system shutdown completed');
-  } catch (error) {
-    console.error('❌ Error during RabbitMQ shutdown:', error);
-    throw error;
-  }
-}
-
-/**
- * 📊 Get system status
- */
-export async function getRabbitMQSystemStatus(): Promise<any> {
-  try {
-    return {
-      rabbitmq: {
-        connected: rabbitMQQueueManager.isConnected(),
-        status: 'active'
-      },
-      workers: {
-        aiWorker: 'active',
-        extractComicWorker: 'active',
-        queueManager: 'active'
-      }
-    };
-  } catch (error) {
-    console.error('❌ Error getting system status:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      rabbitmq: { connected: false, error: errorMessage },
-      workers: { error: errorMessage }
-    };
-  }
-}
 
 // Export individual components for direct access if needed
 export {
   rabbitMQService,
   initializeConsumers,
-  rabbitMQQueueManager,
-  RabbitMQAIWorker,
-  RabbitMQExtractComicWorker
+  // RabbitMQExtractComicWorker removed - replaced by SUKUYAMI integration
 };
 
 // Export the Producer class for easy message publishing

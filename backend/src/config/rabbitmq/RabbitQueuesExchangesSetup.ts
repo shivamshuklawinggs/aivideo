@@ -21,15 +21,7 @@ export default class RabbitQueuesExchangesSetup {
     if (!channel) return;
       
        // AI Video Processing Queues
-       await channel.assertQueue(QUEUE_NAMES.UPLOAD_ARCHIVE, { durable: true });
-       await channel.bindQueue(QUEUE_NAMES.UPLOAD_ARCHIVE, EXCHANGE_NAMES.AI_VIDEO, 'ai-video.upload-archive');
-       
-       await channel.assertQueue(QUEUE_NAMES.EXTRACT_COMIC, { durable: true });
-       await channel.bindQueue(QUEUE_NAMES.EXTRACT_COMIC, EXCHANGE_NAMES.AI_VIDEO, 'ai-video.extract-comic');
-       
-       await channel.assertQueue(QUEUE_NAMES.PROCESS_PANELS, { durable: true });
-       await channel.bindQueue(QUEUE_NAMES.PROCESS_PANELS, EXCHANGE_NAMES.AI_VIDEO, 'ai-video.process-panels');
-       
+     
        await channel.assertQueue(QUEUE_NAMES.GENERATE_SCRIPT, { durable: true });
        await channel.bindQueue(QUEUE_NAMES.GENERATE_SCRIPT, EXCHANGE_NAMES.AI_VIDEO, 'ai-video.generate-script');
        

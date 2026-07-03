@@ -71,6 +71,7 @@ services:
       - ai-network
   suwayomi:
     image: ghcr.io/suwayomi/suwayomi-server:preview
+    container_name: suwayomi
     # user: 1000:1000
     environment:
       - TZ=Etc/UTC # Use TZ database name from https://en.wikipedia.org/wiki/List_of_tz_database_time_zones

@@ -1,28 +1,10 @@
 import axios from 'axios';
+import { apiClient } from './apiClient';
 
-const API_BASE_URL = 'http://localhost:5000/api';
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10000,
-});
-
-// Request interceptor to add auth token
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 // Response interceptor to handle token refresh
-api.interceptors.response.use(
+apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
@@ -42,7 +24,7 @@ api.interceptors.response.use(
 
           // Retry the original request
           originalRequest.headers.Authorization = `Bearer ${token}`;
-          return api(originalRequest);
+          return apiClient(originalRequest);
         }
       } catch (refreshError) {
         // Refresh failed, clear tokens and redirect to login
@@ -59,49 +41,49 @@ api.interceptors.response.use(
 
 export const authAPI = {
   login: async (credentials: { email: string; password: string }) => {
-    const response = await api.post('/auth/login', credentials);
+    const response = await apiClient.post('/auth/login', credentials);
     return response.data;
   },
 
   register: async (userData: { email: string; password: string; name: string }) => {
-    const response = await api.post('/auth/register', userData);
+    const response = await apiClient.post('/auth/register', userData);
     return response.data;
   },
 
   logout: async () => {
-    const response = await api.post('/auth/logout');
+    const response = await apiClient.post('/auth/logout');
     return response.data;
   },
 
   refreshToken: async (refreshToken: string) => {
-    const response = await api.post('/auth/refresh', { refreshToken });
+    const response = await apiClient.post('/auth/refresh', { refreshToken });
     return response.data;
   },
 
   updateProfile: async (userData: any) => {
-    const response = await api.put('/auth/profile', userData);
+    const response = await apiClient.put('/auth/profile', userData);
     return response.data;
   },
 
   changePassword: async (passwords: { currentPassword: string; newPassword: string }) => {
-    const response = await api.put('/auth/password', passwords);
+    const response = await apiClient.put('/auth/password', passwords);
     return response.data;
   },
 
   forgotPassword: async (email: string) => {
-    const response = await api.post('/auth/forgot-password', { email });
+    const response = await apiClient.post('/auth/forgot-password', { email });
     return response.data;
   },
 
   resetPassword: async (token: string, newPassword: string) => {
-    const response = await api.post('/auth/reset-password', { token, newPassword });
+    const response = await apiClient.post('/auth/reset-password', { token, newPassword });
     return response.data;
   },
 
   verifyEmail: async (token: string) => {
-    const response = await api.post('/auth/verify-email', { token });
+    const response = await apiClient.post('/auth/verify-email', { token });
     return response.data;
   },
 };
 
-export default api;
+export default apiClient;

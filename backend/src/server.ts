@@ -1,4 +1,5 @@
 import express, { Application } from 'express';
+import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -10,9 +11,9 @@ import logger from './config/logger';
 import errorHandler from './middlewares/errorHandler';
 import { swaggerUi, specs } from './config/swagger';
 import AuthRoutes from './routes/auth';
-import WebtoonExplainerRoutes from './routes/webtoonExplainer';
-import WebtoonDownloaderRoutes from './routes/webtoonDownloader';
+import SukuyamiRoutes from './routes/sukuyami';
 import { initializeRabbitMQSystem } from './config/rabbitmq';
+import SukuyamiCronService from './services/sukuyamiCronService';
 
 dotenv.config();
 
@@ -54,8 +55,7 @@ app.get('/', (_req, res) => {
 
 // API Routes
 app.use('/api/auth', AuthRoutes);
-app.use('/api/webtoon-explainer', WebtoonExplainerRoutes);
-app.use('/api/webtoon-downloader', WebtoonDownloaderRoutes);
+app.use('/api/sukuyami', SukuyamiRoutes);
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
@@ -85,6 +85,19 @@ const startServer = async () => {
     // Connect to RabbitMQ
    await initializeRabbitMQSystem();
     logger.info('RabbitMQ connected successfully');
+
+    // Initialize SUKUYAMI cron service
+    const sukuyamiCronService = new SukuyamiCronService(
+      process.env.SUKUYAMI_GRAPHQL_URL,
+      process.env.DEFAULT_USER_ID ? new mongoose.Types.ObjectId(process.env.DEFAULT_USER_ID) : undefined
+    );
+    
+    if (process.env.ENABLE_CRON_JOBS === 'true') {
+      sukuyamiCronService.startAllJobs();
+      logger.info('SUKUYAMI cron jobs started');
+    } else {
+      logger.info('SUKUYAMI cron jobs disabled (set ENABLE_CRON_JOBS=true to enable)');
+    }
 
     app.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);

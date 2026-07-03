@@ -1,9 +1,6 @@
 export const QUEUE_NAMES = {
     
     // AI Video Processing Queues
-    UPLOAD_ARCHIVE: 'upload-archive',
-    EXTRACT_COMIC: 'extract-comic',
-    PROCESS_PANELS: 'process-panels',
     GENERATE_SCRIPT: 'generate-script',
     GENERATE_VOICE: 'generate-voice',
     GENERATE_SUBTITLES: 'generate-subtitles',
@@ -31,9 +28,6 @@ export const ROUTING_KEYS = {
     },
     // AI Video Processing Routing Keys
     AI_VIDEO: {
-        UPLOAD_ARCHIVE: 'ai-video.upload-archive',
-        EXTRACT_COMIC: 'ai-video.extract-comic',
-        PROCESS_PANELS: 'ai-video.process-panels',
         GENERATE_SCRIPT: 'ai-video.generate-script',
         GENERATE_VOICE: 'ai-video.generate-voice',
         GENERATE_SUBTITLES: 'ai-video.generate-subtitles',

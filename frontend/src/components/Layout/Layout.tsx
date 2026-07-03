@@ -1,68 +1,62 @@
 import React, { useState } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
   Drawer,
   AppBar,
   Toolbar,
   List,
+  Typography,
+  Divider,
+  IconButton,
   ListItem,
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Typography,
-  IconButton,
   Avatar,
   Menu,
   MenuItem,
   Badge,
   Tooltip,
-  Divider,
 } from '@mui/material';
 import {
-  Menu as MenuIcon,
   Dashboard,
   Book,
-  Upload,
-  Mic,
   VideoLibrary,
-  Settings,
-  AccountCircle,
-  Notifications,
-  Logout,
-  Movie,
-  Queue,
   Description,
+  Search,
+  Settings,
+  Menu as MenuIcon,
+  AccountCircle,
+  Logout,
+  Sync,
+  Notifications,
 } from '@mui/icons-material';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { sukuyamiApi } from '../../services/api/sukuyamiApi';
+import { authAPI } from '../../services/api/authAPI';
 
-import { useAppSelector, useAppDispatch } from '../../store';
-import { toggleSidebar } from '../../store/slices/uiSlice';
-import { logout } from '../../store/slices/authSlice';
-import { useAppSelector as useAuthSelector } from '../../store';
+const drawerWidth = 240;
 
-const drawerWidth = 280;
+interface LayoutProps {
+  children: React.ReactNode;
+}
 
-const Layout: React.FC = () => {
-  const dispatch = useAppDispatch();
+const Layout: React.FC<LayoutProps> = ({ children }) => {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { sidebarOpen } = useAppSelector((state) => state.ui);
-  const { user } = useAuthSelector((state) => state.auth);
 
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [notificationAnchor, setNotificationAnchor] = useState<null | HTMLElement>(null);
+  useQuery({
+    queryKey: ['dashboardStats'],
+    queryFn: () => sukuyamiApi.getDashboardStats(),
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
 
-  const menuItems = [
-    { text: 'Dashboard', icon: <Dashboard />, path: '/dashboard' },
-    { text: 'Webtoon Library', icon: <Book />, path: '/webtoons' },
-    { text: 'Upload Comic', icon: <Upload />, path: '/upload' },
-    { text: 'Voice Profiles', icon: <Mic />, path: '/voice-profiles' },
-    { text: 'Video Editor', icon: <Movie />, path: '/video-editor' },
-    { text: 'Render Queue', icon: <Queue />, path: '/render-queue' },
-    { text: 'Generated Videos', icon: <VideoLibrary />, path: '/videos' },
-    { text: 'Scripts', icon: <Description />, path: '/scripts' },
-    { text: 'Settings', icon: <Settings />, path: '/settings' },
-  ];
+  const handleDrawerToggle = () => {
+    setMobileOpen(!mobileOpen);
+  };
 
   const handleProfileMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -72,223 +66,217 @@ const Layout: React.FC = () => {
     setAnchorEl(null);
   };
 
-  const handleNotificationMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    setNotificationAnchor(event.currentTarget);
+  const handleLogout = async () => {
+    try {
+      await authAPI.logout();
+      localStorage.removeItem('token');
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+      localStorage.removeItem('token');
+      navigate('/login');
+    }
   };
 
-  const handleNotificationMenuClose = () => {
-    setNotificationAnchor(null);
-  };
+  const menuItems = [
+    {
+      text: 'Dashboard',
+      icon: <Dashboard />,
+      path: '/dashboard',
+    },
+    {
+      text: 'Webtoons',
+      icon: <Book />,
+      path: '/webtoons',
+    },
+    {
+      text: 'Chapters',
+      icon: <VideoLibrary />,
+      path: '/chapters',
+    },
+    {
+      text: 'Scripts',
+      icon: <Description />,
+      path: '/scripts',
+    },
+    {
+      text: 'Search',
+      icon: <Search />,
+      path: '/search',
+    },
+    {
+      text: 'Settings',
+      icon: <Settings />,
+      path: '/settings',
+    },
+  ];
 
-  const handleLogout = () => {
-    dispatch(logout());
-    navigate('/login');
-    handleProfileMenuClose();
-  };
-
-  const handleDrawerToggle = () => {
-    dispatch(toggleSidebar());
-  };
+  const drawer = (
+    <div>
+      <Toolbar>
+        <Typography variant="h6" noWrap component="div">
+          Sukuyami
+        </Typography>
+      </Toolbar>
+      <Divider />
+      <List>
+        {menuItems.map((item) => (
+          <ListItem key={item.text} disablePadding>
+            <ListItemButton
+              selected={location.pathname === item.path}
+              onClick={() => navigate(item.path)}
+            >
+              <ListItemIcon>{item.icon}</ListItemIcon>
+              <ListItemText primary={item.text} />
+            </ListItemButton>
+          </ListItem>
+        ))}
+      </List>
+    </div>
+  );
 
   return (
     <Box sx={{ display: 'flex' }}>
       <AppBar
         position="fixed"
         sx={{
-          width: sidebarOpen ? `calc(100% - ${drawerWidth}px)` : '100%',
-          ml: sidebarOpen ? `${drawerWidth}px` : 0,
-          bgcolor: '#1a1a2e',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          width: { sm: `calc(100% - ${drawerWidth}px)` },
+          ml: { sm: `${drawerWidth}px` },
         }}
       >
         <Toolbar>
           <IconButton
             color="inherit"
             aria-label="open drawer"
-            onClick={handleDrawerToggle}
             edge="start"
-            sx={{ mr: 2 }}
+            onClick={handleDrawerToggle}
+            sx={{ mr: 2, display: { sm: 'none' } }}
           >
             <MenuIcon />
           </IconButton>
-
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            <span className="text-gradient">AI Webtoon Explainer</span>
+            AI Webtoon Platform
           </Typography>
+          
+          {/* Notifications */}
+          <Tooltip title="Notifications">
+            <IconButton color="inherit">
+              <Badge badgeContent={0} color="error">
+                <Notifications />
+              </Badge>
+            </IconButton>
+          </Tooltip>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Tooltip title="Notifications">
-              <IconButton color="inherit" onClick={handleNotificationMenuOpen}>
-                <Badge badgeContent={3} color="error">
-                  <Notifications />
-                </Badge>
-              </IconButton>
-            </Tooltip>
+          {/* Sync Status */}
+          <Tooltip title="Sync Status">
+            <IconButton color="inherit">
+              <Sync />
+            </IconButton>
+          </Tooltip>
 
-            <Tooltip title="Profile">
-              <IconButton
-                onClick={handleProfileMenuOpen}
-                sx={{ p: 0 }}
-              >
-                <Avatar sx={{ bgcolor: '#8b5cf6', width: 32, height: 32 }}>
-                  {user?.name?.charAt(0).toUpperCase() || 'U'}
-                </Avatar>
-              </IconButton>
-            </Tooltip>
-          </Box>
+          {/* Profile Menu */}
+          <Tooltip title="Profile">
+            <IconButton
+              color="inherit"
+              onClick={handleProfileMenuOpen}
+            >
+              <AccountCircle />
+            </IconButton>
+          </Tooltip>
+          
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleProfileMenuClose}
+            onClick={handleProfileMenuClose}
+            PaperProps={{
+              elevation: 0,
+              sx: {
+                overflow: 'visible',
+                filter: 'drop-shadow(0px 2px 8px rgba(0,0,0,0.32))',
+                mt: 1.5,
+                '& .MuiAvatar-root': {
+                  width: 32,
+                  height: 32,
+                  ml: -0.5,
+                  mr: 1,
+                },
+                '&:before': {
+                  content: '""',
+                  display: 'block',
+                  position: 'absolute',
+                  top: 0,
+                  right: 14,
+                  width: 10,
+                  height: 10,
+                  bgcolor: 'background.paper',
+                  transform: 'translateY(-50%) rotate(45deg)',
+                  zIndex: 0,
+                },
+              },
+            }}
+            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+          >
+            <MenuItem onClick={handleProfileMenuClose}>
+              <Avatar /> Profile
+            </MenuItem>
+            <MenuItem onClick={handleProfileMenuClose}>
+              <Avatar /> My account
+            </MenuItem>
+            <Divider />
+            <MenuItem onClick={handleLogout}>
+              <ListItemIcon>
+                <Logout fontSize="small" />
+              </ListItemIcon>
+              Logout
+            </MenuItem>
+          </Menu>
         </Toolbar>
       </AppBar>
-
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={handleProfileMenuClose}
-        onClick={handleProfileMenuClose}
-        PaperProps={{
-          sx: {
-            mt: 2,
-            bgcolor: '#1a1a2e',
-            border: '1px solid #2a2a3e',
-            '& .MuiListItemIcon': {
-              color: '#a0a0b8',
-            },
-            '& .MuiListItemText-primary': {
-              color: '#ffffff',
-            },
-          },
-        }}
+      
+      <Box
+        component="nav"
+        sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
+        aria-label="mailbox folders"
       >
-        <MenuItem onClick={() => { navigate('/settings'); handleProfileMenuClose(); }}>
-          <ListItemIcon>
-            <AccountCircle />
-          </ListItemIcon>
-          Profile
-        </MenuItem>
-        <MenuItem onClick={() => { navigate('/settings'); handleProfileMenuClose(); }}>
-          <ListItemIcon>
-            <Settings />
-          </ListItemIcon>
-          Settings
-        </MenuItem>
-        <Divider sx={{ borderColor: '#2a2a3e' }} />
-        <MenuItem onClick={handleLogout}>
-          <ListItemIcon>
-            <Logout />
-          </ListItemIcon>
-          Logout
-        </MenuItem>
-      </Menu>
-
-      <Menu
-        anchorEl={notificationAnchor}
-        open={Boolean(notificationAnchor)}
-        onClose={handleNotificationMenuClose}
-        PaperProps={{
-          sx: {
-            mt: 2,
-            width: 320,
-            maxHeight: 400,
-            bgcolor: '#1a1a2e',
-            border: '1px solid #2a2a3e',
-          },
-        }}
-      >
-        <Box sx={{ p: 2, borderBottom: '1px solid #2a2a3e' }}>
-          <Typography variant="h6">Notifications</Typography>
-        </Box>
-        <MenuItem sx={{ py: 2 }}>
-          <Box>
-            <Typography variant="body2" sx={{ color: '#8b5cf6' }}>
-              Video Rendering Completed
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#a0a0b8' }}>
-              Your video "Chapter 1 Explanation" is ready
-            </Typography>
-          </Box>
-        </MenuItem>
-        <MenuItem sx={{ py: 2 }}>
-          <Box>
-            <Typography variant="body2" sx={{ color: '#10b981' }}>
-              Voice Profile Ready
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#a0a0b8' }}>
-              Your voice profile "Narrator" is ready to use
-            </Typography>
-          </Box>
-        </MenuItem>
-      </Menu>
-
-      <Drawer
-        variant={sidebarOpen ? 'persistent' : 'temporary'}
-        open={sidebarOpen}
-        onClose={handleDrawerToggle}
-        sx={{
-          width: drawerWidth,
-          flexShrink: 0,
-          '& .MuiDrawer-paper': {
-            width: drawerWidth,
-            boxSizing: 'border-box',
-            bgcolor: '#1a1a2e',
-            border: 'none',
-          },
-        }}
-      >
-        <Toolbar />
-        <Box sx={{ overflow: 'auto', py: 2 }}>
-          <List>
-            {menuItems.map((item) => (
-              <ListItem key={item.text} disablePadding>
-                <ListItemButton
-                  onClick={() => navigate(item.path)}
-                  selected={location.pathname === item.path}
-                  sx={{
-                    mx: 1,
-                    borderRadius: 2,
-                    '&.Mui-selected': {
-                      bgcolor: 'rgba(139, 92, 246, 0.1)',
-                      '&:hover': {
-                        bgcolor: 'rgba(139, 92, 246, 0.15)',
-                      },
-                      '& .MuiListItemIcon': {
-                        color: '#8b5cf6',
-                      },
-                      '& .MuiListItemText-primary': {
-                        color: '#8b5cf6',
-                        fontWeight: 500,
-                      },
-                    },
-                    '&:hover': {
-                      bgcolor: 'rgba(255, 255, 255, 0.05)',
-                    },
-                    '& .MuiListItemIcon': {
-                      color: '#a0a0b8',
-                    },
-                    '& .MuiListItemText-primary': {
-                      color: '#ffffff',
-                    },
-                  }}
-                >
-                  <ListItemIcon>{item.icon}</ListItemIcon>
-                  <ListItemText primary={item.text} />
-                </ListItemButton>
-              </ListItem>
-            ))}
-          </List>
-        </Box>
-      </Drawer>
-
+        {/* The implementation can be swapped with js to avoid SEO duplication of links. */}
+        <Drawer
+          variant="temporary"
+          open={mobileOpen}
+          onClose={handleDrawerToggle}
+          ModalProps={{
+            keepMounted: true, // Better open performance on mobile.
+          }}
+          sx={{
+            display: { xs: 'block', sm: 'none' },
+            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+          }}
+        >
+          {drawer}
+        </Drawer>
+        <Drawer
+          variant="permanent"
+          sx={{
+            display: { xs: 'none', sm: 'block' },
+            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+          }}
+          open
+        >
+          {drawer}
+        </Drawer>
+      </Box>
+      
       <Box
         component="main"
         sx={{
           flexGrow: 1,
           p: 3,
-          width: sidebarOpen ? `calc(100% - ${drawerWidth}px)` : '100%',
-          minHeight: '100vh',
-          bgcolor: '#0f0f23',
+          width: { sm: `calc(100% - ${drawerWidth}px)` },
         }}
       >
         <Toolbar />
-        <Outlet />
+        {children}
       </Box>
     </Box>
   );
