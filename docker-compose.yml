@@ -1,31 +1,31 @@
 services:
-  redis:
-    image: redis:latest
-    container_name: redis
-    command:
-      - redis-server
-      - --bind
-      - 0.0.0.0
-      - --requirepass
-      - redis123
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
+  # redis:
+  #   image: redis:latest
+  #   container_name: redis
+  #   command:
+  #     - redis-server
+  #     - --bind
+  #     - 0.0.0.0
+  #     - --requirepass
+  #     - redis123
+  #   ports:
+  #     - "6379:6379"
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis_data:/data
 
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: admin
-      RABBITMQ_DEFAULT_PASS: admin123
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    restart: unless-stopped
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+  # rabbitmq:
+  #   image: rabbitmq:3-management
+  #   container_name: rabbitmq
+  #   environment:
+  #     RABBITMQ_DEFAULT_USER: admin
+  #     RABBITMQ_DEFAULT_PASS: admin123
+  #   ports:
+  #     - "5672:5672"
+  #     - "15672:15672"
+  #   restart: unless-stopped
+  #   volumes:
+  #     - rabbitmq_data:/var/lib/rabbitmq
 
   ollama:
     image: ollama/ollama:latest
@@ -37,36 +37,6 @@ services:
     restart: unless-stopped
     volumes:
       - ollama_data:/root/.ollama
-    networks:
-      - ai-network
-
-  cohere-mock:
-    build:
-      context: ./scripts/cohere-mock
-    container_name: cohere-mock
-    ports:
-      - "15001:15001"
-    restart: unless-stopped
-    networks:
-      - ai-network
-
-  embedding-service:
-    build:
-      context: ./scripts/embedding-service
-    container_name: embedding-service
-    ports:
-      - "15002:15002"
-    restart: unless-stopped
-    networks:
-      - ai-network
-
-  xtts-service:
-    build:
-      context: ./scripts/xtts-service
-    container_name: xtts-service
-    ports:
-      - "8002:8002"
-    restart: unless-stopped
     networks:
       - ai-network
   suwayomi:

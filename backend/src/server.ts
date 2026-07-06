@@ -1,5 +1,4 @@
 import express, { Application } from 'express';
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -89,7 +88,7 @@ const startServer = async () => {
     // Initialize SUKUYAMI cron service
     const sukuyamiCronService = new SukuyamiCronService(
       process.env.SUKUYAMI_GRAPHQL_URL,
-      process.env.DEFAULT_USER_ID ? new mongoose.Types.ObjectId(process.env.DEFAULT_USER_ID) : undefined
+      // process.env.DEFAULT_USER_ID ? new mongoose.Types.ObjectId(process.env.DEFAULT_USER_ID) : undefined
     );
     
     if (process.env.ENABLE_CRON_JOBS === 'true') {

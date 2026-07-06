@@ -310,9 +310,7 @@ ChapterSchema.virtual('isReadyForProcessing').get(function() {
   return this.status === 'completed' && this.panels.length > 0;
 });
 
-ChapterSchema.virtual('panelCount').get(function() {
-  return this.panels.length || 0;
-});
+
 
 ChapterSchema.set('toJSON', { virtuals: true });
 ChapterSchema.set('toObject', { virtuals: true });
