@@ -1,20 +1,11 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { useDispatch, useSelector, TypedUseSelectorHook } from 'react-redux';
-
-import authSlice from './slices/authSlice';
-
+import authReducer from './slices/authSlice';
 
 export const store = configureStore({
   reducer: {
-    auth: authSlice,
-   
+    auth: authReducer,
   },
-  middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware({
-      serializableCheck: {
-        ignoredActions: ['persist/PERSIST'],
-      },
-    }),
 });
 
 export type RootState = ReturnType<typeof store.getState>;

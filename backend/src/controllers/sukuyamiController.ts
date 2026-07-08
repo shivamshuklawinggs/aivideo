@@ -8,20 +8,15 @@ import VideoGenerationService from '../services/videoGenerationService';
 import SukuyamiCronService from '../services/sukuyamiCronService';
 import SukuyamiGraphQLService from '../services/sukuyamiGraphQLService';
 import logger from '../config/logger';
-
+  const syncService = new SukuyamiSyncService();
+  const scriptService = new ScriptGenerationService();
+  const videoService = new VideoGenerationService();
+  const cronService = new SukuyamiCronService();
+  const graphqlService = new SukuyamiGraphQLService();
 class SukuyamiController {
-  private syncService: SukuyamiSyncService;
-  private scriptService: ScriptGenerationService;
-  private videoService: VideoGenerationService;
-  private cronService: SukuyamiCronService;
-  private graphqlService: SukuyamiGraphQLService;
 
   constructor() {
-    this.syncService = new SukuyamiSyncService();
-    this.scriptService = new ScriptGenerationService();
-    this.videoService = new VideoGenerationService();
-    this.cronService = new SukuyamiCronService();
-    this.graphqlService = new SukuyamiGraphQLService();
+  
   }
 
   // Get all webtoons from database with pagination and filtering
@@ -259,7 +254,7 @@ class SukuyamiController {
 
       logger.info(`Starting webtoon sync for user: ${userId}`);
 
-      const result = await this.syncService.syncAllWebtoons(options);
+      const result = await syncService.syncAllWebtoons(options);
 
       res.json({
         success: true,
@@ -297,7 +292,7 @@ class SukuyamiController {
         });
       }
 
-      const script = await this.scriptService.generateScriptForChapter(
+      const script = await scriptService.generateScriptForChapter(
         new mongoose.Types.ObjectId(chapterId),
         { style, durationPerPanel, model }
       );
@@ -338,7 +333,7 @@ class SukuyamiController {
         });
       }
 
-      const video = await this.videoService.generateVideoForChapter(
+      const video = await videoService.generateVideoForChapter(
         new mongoose.Types.ObjectId(chapterId),
         { format, quality, fps }
       );
@@ -367,7 +362,7 @@ class SukuyamiController {
         });
       }
 
-      const results = await this.graphqlService.searchManga(
+      const results = await graphqlService.searchManga(
         query,
         parseInt(limit as string)
       );
@@ -414,7 +409,7 @@ class SukuyamiController {
       }
 
       // Get webtoon info from SUKUYAMI
-      const webtoonInfo = await this.graphqlService.getManga(sukuyamiId);
+      const webtoonInfo = await graphqlService.getManga(sukuyamiId);
       if (!webtoonInfo) {
         return res.status(404).json({
           success: false,
@@ -423,13 +418,13 @@ class SukuyamiController {
       }
 
       // Create webtoon in database
-      const webtoon = await this.syncService.createWebtoon(
+      const webtoon = await syncService.createWebtoon(
         webtoonInfo,
         new mongoose.Types.ObjectId(userId)
       );
 
       // Sync chapters
-      await this.syncService.syncChapters(sukuyamiId, new mongoose.Types.ObjectId(userId));
+      await syncService.syncChapters(sukuyamiId, new mongoose.Types.ObjectId(userId));
 
       res.status(201).json({
         success: true,
@@ -446,7 +441,7 @@ class SukuyamiController {
   // Get cron job status
   async getCronStatus(_req: Request, res: Response, next: NextFunction) {
     try {
-      const status = this.cronService.getStatus();
+      const status = cronService.getStatus();
 
       res.json({
         success: true,
@@ -464,7 +459,7 @@ class SukuyamiController {
     try {
       const { jobName } = req.params;
 
-      await this.cronService.runJobManually(jobName as any);
+      await cronService.runJobManually(jobName as any);
 
       res.json({
         success: true,
@@ -534,8 +529,8 @@ class SukuyamiController {
   async healthCheck(_req: Request, res: Response, next: NextFunction) {
     try {
       const [syncHealth, graphqlHealth] = await Promise.all([
-        this.syncService.healthCheck(),
-        this.graphqlService.healthCheck()
+        syncService.healthCheck(),
+        graphqlService.healthCheck()
       ]);
 
       const health = {

@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import logger from '../config/logger';
-
+import dotenv from "dotenv"
+dotenv.config()
 export interface MangaInfo {
   id: string;
   title: string;
@@ -61,7 +62,7 @@ export class SukuyamiGraphQLService {
   private graphqlUrl: string;
 
   constructor(graphqlUrl?: string) {
-    this.graphqlUrl = graphqlUrl || process.env.SUKUYAMI_GRAPHQL_URL || 'http://localhost:4000/graphql';
+    this.graphqlUrl = graphqlUrl || process.env.SUKUYAMI_GRAPHQL_URL || 'http://localhost:4567/api/graphql';
     
     this.client = axios.create({
       baseURL: this.graphqlUrl,
@@ -80,6 +81,7 @@ export class SukuyamiGraphQLService {
         query,
         variables,
       });
+      console.log("response",response.data)
 
       if (response.data.errors) {
         const errorMessages = response.data.errors.map(err => err.message).join(', ');
@@ -100,33 +102,62 @@ export class SukuyamiGraphQLService {
     }
   }
 
-  async searchManga(query: string, limit: number = 20): Promise<MangaInfo[]> {
-    const searchQuery = `
-      query SearchManga($query: String!, $limit: Int) {
-        searchManga(query: $query, limit: $limit) {
-          id
-          title
-          description
-          author
-          genres
-          coverImage
-          url
-          status
-          totalChapters
-          lastUpdated
-        }
-      }
-    `;
-
-    try {
-      const result = await this.executeQuery<SearchMangaResponse>(searchQuery, { query, limit });
-      logger.info(`Found ${result.searchManga.length} manga for query: ${query}`);
-      return result.searchManga;
-    } catch (error: any) {
-      logger.error('Failed to search manga:', error);
-      throw new Error(`Failed to search manga: ${error.message}`);
+  async searchManga(
+  query: string,
+  page: number = 1
+): Promise<any[]> {
+  const searchQuery = `
+    fragment MANGA_BASE_FIELDS on MangaType {
+      id
+      title
+      thumbnailUrl
+      thumbnailUrlLastFetched
+      inLibrary
+      initialized
+      sourceId
+      __typename
     }
+
+    mutation GET_SOURCE_MANGAS_FETCH($input: FetchSourceMangaInput!) {
+      fetchSourceManga(input: $input) {
+        hasNextPage
+        mangas {
+          ...MANGA_BASE_FIELDS
+          __typename
+        }
+        __typename
+      }
+    }
+  `;
+
+  const variables = {
+    input: {
+      type: "SEARCH",
+      source: process.env.sourceId,
+      query,
+      filters: [],
+      page,
+    },
+  };
+
+  try {
+    const result = await this.executeQuery<{
+      fetchSourceManga: {
+        hasNextPage: boolean;
+        mangas: MangaInfo[];
+      };
+    }>(searchQuery, variables);
+
+    logger.info(
+      `Found ${result.fetchSourceManga.mangas.length} manga for query: ${query}`
+    );
+
+    return result.fetchSourceManga.mangas;
+  } catch (error: any) {
+    logger.error("Failed to search manga:", error);
+    throw new Error(`Failed to search manga: ${error.message}`);
   }
+}
 
   async getManga(mangaId: string): Promise<MangaInfo | null> {
     const getMangaQuery = `

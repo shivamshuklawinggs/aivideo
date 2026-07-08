@@ -1,24 +1,19 @@
-import { apiClient } from './apiClient.js';
+import { apiClient } from './apiClient';
 
 export interface Webtoon {
   _id: string;
-  userId: string;
-  sukuyamiId: string;
   title: string;
   description: string;
   author: string;
-  genres: string[];
   coverImage: string;
   status: 'ongoing' | 'completed' | 'hiatus';
   totalChapters: number;
-  sourceType: 'sukuyami' | 'tachiyomi' | 'graphql';
+  genres: string[];
   sukuyamiData: {
-    totalSourceChapters: number;
-    lastChapterNumber: number;
-    popularity: number;
     rating: number;
+    popularity: number;
+    sukuyamiId: string;
   };
-  lastUpdated: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -26,237 +21,141 @@ export interface Webtoon {
 export interface Chapter {
   _id: string;
   webtoonId: string;
-  userId: string;
-  sukuyamiChapterId: string;
   chapterNumber: number;
   title: string;
-  totalPages: number;
-  panels: Panel[];
-  generatedScript?: GeneratedScript;
+  status: 'pending' | 'syncing' | 'processing' | 'completed' | 'failed';
+  panelCount: number;
+  scriptGenerated: boolean;
+  videoGenerated: boolean;
   videoUrl?: string;
-  videoPath?: string;
-  videoDuration?: number;
-  videoFormat?: string;
-  videoSize?: number;
-  processingStatus: 'pending' | 'syncing' | 'processing' | 'completed' | 'failed';
-  processingProgress: number;
-  isProcessed: boolean;
-  metadata: {
-    totalPanels: number;
-    averagePanelDuration: number;
-    estimatedReadTime: number;
-  };
   createdAt: string;
   updatedAt: string;
-}
-
-export interface Panel {
-  pageNumber: number;
-  imageUrl: string;
-  sequence: number;
-  duration: number;
-  position?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-}
-
-export interface GeneratedScript {
-  title: string;
-  content: string;
-  scenes: Array<{
-    sceneNumber: number;
-    startTime: number;
-    endTime: number;
-    narration: string;
-    panels: number[];
-    duration: number;
-  }>;
-  totalDuration: number;
-  modelUsed: string;
-  generatedAt: string;
 }
 
 export interface DashboardStats {
   totalWebtoons: number;
   totalChapters: number;
-  totalVideos: number;
   totalScripts: number;
-  recentActivity: Array<{
-    type: 'webtoon_added' | 'chapter_synced' | 'script_generated' | 'video_generated';
-    webtoonTitle: string;
-    timestamp: string;
-  }>;
+  totalVideos: number;
   processingStats: {
     pending: number;
     processing: number;
     completed: number;
     failed: number;
   };
-}
-
-export interface CronJobStatus {
-  syncWebtoons: {
-    isRunning: boolean;
-    lastRun: string | null;
-    nextRun: string | null;
-    successCount: number;
-    failureCount: number;
-  };
-  checkNewChapters: {
-    isRunning: boolean;
-    lastRun: string | null;
-    nextRun: string | null;
-    successCount: number;
-    failureCount: number;
-  };
-  generateScripts: {
-    isRunning: boolean;
-    lastRun: string | null;
-    nextRun: string | null;
-    successCount: number;
-    failureCount: number;
-  };
-  generateVideos: {
-    isRunning: boolean;
-    lastRun: string | null;
-    nextRun: string | null;
-    successCount: number;
-    failureCount: number;
-  };
-}
-
-export interface SukuyamiSearchParams {
-  query: string;
-  limit?: number;
+  recentActivity: Array<{
+    type: string;
+    webtoonTitle: string;
+    timestamp: string;
+  }>;
 }
 
 export interface WebtoonSearchParams {
   page?: number;
   limit?: number;
-  status?: 'ongoing' | 'completed' | 'hiatus' | 'all';
+  status?: string;
   genre?: string;
   search?: string;
-  sortBy?: 'createdAt' | 'updatedAt' | 'title' | 'totalChapters';
-  sortOrder?: 'asc' | 'desc';
+  sortBy?: string;
+  sortOrder?: string;
 }
 
-export interface ChapterSearchParams {
-  page?: number;
-  limit?: number;
-  status?: 'pending' | 'syncing' | 'processing' | 'completed' | 'failed' | 'all';
-  search?: string;
-}
+export const sukuyamiApi = {
+  // Webtoons — backend: { success, data: { webtoons: [], pagination: {} } }
+  getWebtoons: async (params?: WebtoonSearchParams) => {
+    const response = await apiClient.get('/sukuyami/webtoons', { params });
+    const d = response.data?.data;
+    return { data: d?.webtoons ?? [], pagination: d?.pagination };
+  },
 
-export interface SyncOptions {
-  webtoonIds?: string[];
-  forceUpdate?: boolean;
-  syncChapters?: boolean;
-}
+  getWebtoon: async (webtoonId: string) => {
+    const response = await apiClient.get(`/sukuyami/webtoons/${webtoonId}`);
+    return response.data?.data;
+  },
 
-export interface ScriptGenerationOptions {
-  style?: 'narrative' | 'dramatic' | 'educational' | 'casual';
-  durationPerPanel?: number;
-  model?: string;
-}
+  addWebtoon: async (sukuyamiId: string) => {
+    const response = await apiClient.post('/sukuyami/webtoons', { sukuyamiId });
+    return response.data?.data;
+  },
 
-export interface VideoGenerationOptions {
-  format?: 'mp4' | 'webm' | 'avi';
-  quality?: 'low' | 'medium' | 'high';
-  fps?: number;
-}
+  syncWebtoons: async (options: { webtoonIds?: string[]; forceUpdate?: boolean; syncChapters?: boolean }) => {
+    const response = await apiClient.post('/sukuyami/sync', options);
+    return response.data;
+  },
 
-export interface PaginatedResponse<T> {
-  data: T[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
-}
+  searchWebtoons: async (params: { query: string; limit?: number }) => {
+    const response = await apiClient.get('/sukuyami/search', { params });
+    const d = response.data?.data;
+    return d?.webtoons ?? d?.results ?? d ?? [];
+  },
 
-export interface ApiResponse<T> {
-  success: boolean;
-  data: T;
-  message?: string;
-}
+  // Chapters — backend: { success, data: { chapters: [], pagination: {} } }
+  getChapters: async (webtoonId: string, params?: { page?: number; limit?: number; status?: string }) => {
+    const response = await apiClient.get(`/sukuyami/webtoons/${webtoonId}/chapters`, { params });
+    const d = response.data?.data;
+    return { data: d?.chapters ?? [], pagination: d?.pagination };
+  },
 
-class SukuyamiApi {
-  // Webtoon Management
-  async getWebtoons(params: WebtoonSearchParams = {}): Promise<PaginatedResponse<Webtoon>> {
-    const response = await apiClient.get<ApiResponse<PaginatedResponse<Webtoon>>>('/sukuyami/webtoons', { params });
-    return response.data.data;
-  }
+  getChapter: async (chapterId: string) => {
+    const response = await apiClient.get(`/sukuyami/chapters/${chapterId}`);
+    return response.data?.data;
+  },
 
-  async getWebtoon(webtoonId: string): Promise<Webtoon> {
-    const response = await apiClient.get<ApiResponse<Webtoon>>(`/sukuyami/webtoons/${webtoonId}`);
-    return response.data.data;
-  }
+  // Script generation
+  generateScript: async (
+    chapterId: string,
+    options?: { style?: string; durationPerPanel?: number; model?: string }
+  ) => {
+    const response = await apiClient.post(`/sukuyami/chapters/${chapterId}/script`, options);
+    return response.data?.data ?? response.data;
+  },
 
-  async searchWebtoons(params: SukuyamiSearchParams): Promise<any[]> {
-    const response = await apiClient.get<ApiResponse<any[]>>('/sukuyami/search', { params });
-    return response.data.data;
-  }
+  // Video generation
+  generateVideo: async (
+    chapterId: string,
+    options?: { format?: string; quality?: string; fps?: number }
+  ) => {
+    const response = await apiClient.post(`/sukuyami/chapters/${chapterId}/video`, options);
+    return response.data?.data ?? response.data;
+  },
 
-  async addWebtoon(sukuyamiId: string): Promise<Webtoon> {
-    const response = await apiClient.post<ApiResponse<Webtoon>>('/sukuyami/webtoons', { sukuyamiId });
-    return response.data.data;
-  }
+  // Dashboard — backend: { success, data: { stats: { webtoons, chapters, recentActivity } } }
+  getDashboardStats: async (): Promise<DashboardStats> => {
+    const response = await apiClient.get('/sukuyami/dashboard');
+    const stats = response.data?.data?.stats ?? {};
+    return {
+      totalWebtoons: stats.webtoons?.total ?? 0,
+      totalChapters: stats.chapters?.total ?? 0,
+      totalScripts: stats.chapters?.completed ?? 0,
+      totalVideos: stats.chapters?.withVideo ?? 0,
+      processingStats: {
+        pending: 0,
+        processing: 0,
+        completed: stats.chapters?.completed ?? 0,
+        failed: 0,
+      },
+      recentActivity: (stats.recentActivity ?? []).map((a: any) => ({
+        type: a.status || 'chapter_synced',
+        webtoonTitle: a.title || `Chapter ${a.chapterNumber}`,
+        timestamp: a.updatedAt || new Date().toISOString(),
+      })),
+    };
+  },
 
-  async syncWebtoons(options: SyncOptions = {}): Promise<any> {
-    const response = await apiClient.post<ApiResponse<any>>('/sukuyami/sync', options);
-    return response.data.data;
-  }
+  // Cron — backend: { success, data: { status } }
+  getCronStatus: async () => {
+    const response = await apiClient.get('/sukuyami/cron/status');
+    return response.data?.data?.status ?? {};
+  },
 
-  // Chapter Management
-  async getChapters(webtoonId: string, params: ChapterSearchParams = {}): Promise<PaginatedResponse<Chapter>> {
-    const response = await apiClient.get<ApiResponse<PaginatedResponse<Chapter>>>(`/sukuyami/webtoons/${webtoonId}/chapters`, { params });
-    return response.data.data;
-  }
+  runCronJob: async (jobName: string) => {
+    const response = await apiClient.post(`/sukuyami/cron/${jobName}/run`);
+    return response.data;
+  },
 
-  async getChapter(chapterId: string): Promise<Chapter> {
-    const response = await apiClient.get<ApiResponse<Chapter>>(`/sukuyami/chapters/${chapterId}`);
-    return response.data.data;
-  }
-
-  // Script Generation
-  async generateScript(chapterId: string, options: ScriptGenerationOptions = {}): Promise<Chapter> {
-    const response = await apiClient.post<ApiResponse<Chapter>>(`/sukuyami/chapters/${chapterId}/script`, options);
-    return response.data.data;
-  }
-
-  // Video Generation
-  async generateVideo(chapterId: string, options: VideoGenerationOptions = {}): Promise<Chapter> {
-    const response = await apiClient.post<ApiResponse<Chapter>>(`/sukuyami/chapters/${chapterId}/video`, options);
-    return response.data.data;
-  }
-
-  // Dashboard and Statistics
-  async getDashboardStats(): Promise<DashboardStats> {
-    const response = await apiClient.get<ApiResponse<DashboardStats>>('/sukuyami/dashboard');
-    return response.data.data;
-  }
-
-  // Cron Job Management
-  async getCronStatus(): Promise<CronJobStatus> {
-    const response = await apiClient.get<ApiResponse<CronJobStatus>>('/sukuyami/cron/status');
-    return response.data.data;
-  }
-
-  async runCronJob(jobName: string): Promise<any> {
-    const response = await apiClient.post<ApiResponse<any>>(`/sukuyami/cron/${jobName}/run`);
-    return response.data.data;
-  }
-
-  // Health Check
-  async healthCheck(): Promise<any> {
-    const response = await apiClient.get<ApiResponse<any>>('/sukuyami/health');
-    return response.data.data;
-  }
-}
-
-export const sukuyamiApi = new SukuyamiApi();
-export default sukuyamiApi;
+  // Health
+  healthCheck: async () => {
+    const response = await apiClient.get('/sukuyami/health');
+    return response.data?.data ?? response.data;
+  },
+};

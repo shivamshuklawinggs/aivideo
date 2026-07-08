@@ -9,7 +9,7 @@ suwayomi-data/
 # Production
 build/
 dist/
-
+.next/
 
 # Logs
 logs/

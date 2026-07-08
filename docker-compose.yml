@@ -67,7 +67,7 @@ services:
 #      - AUTH_PASSWORD=hello123
 #      - EXTENSION_STORES=["https://raw.githubusercontent.com/MY_ACCOUNT/MY_EXTENSION_STORE/repo/index.min.json", "https://raw.githubusercontent.com/MY_ACCOUNT_2/MY_REPO_2/repo/index.pb"]
     volumes:
-      - ./data:/home/suwayomi/.local/share/Tachidesk
+      - suwayomi_data:/home/suwayomi/.local/share/Tachidesk
     ports:
       - "4567:4567"
     restart: on-failure:3
@@ -83,6 +83,7 @@ volumes:
   redis_data:
   rabbitmq_data:
   ollama_data:
+  suwayomi_data:
 
 networks:
   ai-network:
