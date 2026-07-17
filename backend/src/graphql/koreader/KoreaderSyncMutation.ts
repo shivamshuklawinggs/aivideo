@@ -7,7 +7,7 @@
  */
 
 import gql from 'graphql-tag';
-import { KO_SYNC_STATUS } from 'lib/graphql/koreader/KoreaderSyncFragments.ts';
+import { KO_SYNC_STATUS } from '@/graphql/koreader/KoreaderSyncFragments';
 
 export const KO_SYNC_LOGIN = gql`
     ${KO_SYNC_STATUS}

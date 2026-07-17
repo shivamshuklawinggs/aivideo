@@ -10,198 +10,28 @@ import { ErrorLink } from '@apollo/client/link/error';
 import { SetContextLink } from '@apollo/client/link/context';
 import type { ErrorLike } from '@apollo/client';
 import { ApolloClient, ApolloLink, CombinedGraphQLErrors, InMemoryCache, ServerError } from '@apollo/client';
+import { HttpLink } from '@apollo/client/link/http';
 import { filter, firstValueFrom, from, map, switchMap } from 'rxjs';
-import UploadHttpLink from 'apollo-upload-client/UploadHttpLink.mjs';
 import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
-import type { Client } from 'graphql-ws';
-import { createClient } from 'graphql-ws';
+import type { Client as WSClient, Message as WSMessage } from 'graphql-ws';
+import { createClient as createWsClient } from 'graphql-ws';
 import { getMainDefinition } from '@apollo/client/utilities';
 import { RemoveTypenameFromVariablesLink } from '@apollo/client/link/remove-typename';
-import { d } from 'koration';
-import { useId } from '@mantine/hooks';
-import { useEffect } from 'react';
 import type { GraphQLFormattedError } from 'graphql';
-import { BaseClient } from 'lib/requests/client/BaseClient.ts';
-import type { TypedTypePolicies } from 'lib/graphql/generated/apollo-helpers.ts';
-import { AuthManager } from '@/features/authentication/AuthManager.ts';
-import type { UserRefreshMutation } from 'lib/graphql/generated/graphql.ts';
-import type { AbortableApolloMutationResponse } from 'lib/requests/RequestManager.ts';
-import type { ChapterNodeList } from 'lib/graphql/generated/graphql-base.types.ts';
-
-const typePolicies: TypedTypePolicies = {
-    MangaType: {
-        fields: {
-            trackRecords: {
-                merge(existing, incoming) {
-                    const nodes = incoming.nodes ?? existing?.nodes;
-
-                    return {
-                        ...existing,
-                        ...incoming,
-                        totalCount: nodes?.length ?? existing?.totalCount ?? incoming.totalCount,
-                        nodes,
-                    };
-                },
-            },
-        },
-    },
-    GlobalMetaType: { keyFields: ['key'] },
-    MangaMetaType: { keyFields: ['mangaId', 'key'] },
-    ChapterMetaType: { keyFields: ['chapterId', 'key'] },
-    CategoryMetaType: { keyFields: ['categoryId', 'key'] },
-    SourceMetaType: { keyFields: ['sourceId', 'key'] },
-    ExtensionType: { keyFields: ['pkgName'] },
-    ExtensionStoreType: { keyFields: ['indexUrl'] },
-    AboutServerPayload: { keyFields: [] },
-    AboutWebUI: { keyFields: [] },
-    WebUIUpdateInfo: { keyFields: [] },
-    WebUIUpdateCheck: { keyFields: [] },
-    SettingsType: { keyFields: [] },
-    DownloadStatus: {
-        keyFields: [],
-        fields: {
-            queue: {
-                merge(_existing, incoming) {
-                    return incoming;
-                },
-            },
-        },
-    },
-    DownloadType: { keyFields: ['chapter'] },
-    CategoryUpdateType: { keyFields: ['category'] },
-    MangaUpdateType: { keyFields: ['manga'] },
-    UpdaterJobsInfoType: { keyFields: [] },
-    WebUIUpdateStatus: { keyFields: [] },
-    UpdateStatus: { keyFields: [] },
-    KoSyncStatusPayload: { keyFields: [] },
-    SyncStatus: { keyFields: [] },
-    Query: {
-        fields: {
-            manga(_, { args, toReference }) {
-                return toReference({
-                    __typename: 'MangaType',
-                    id: args?.id,
-                });
-            },
-            category(_, { args, toReference }) {
-                return toReference({
-                    __typename: 'CategoryType',
-                    id: args?.id,
-                });
-            },
-            source(_, { args, toReference }) {
-                return toReference({
-                    __typename: 'SourceType',
-                    id: args?.id,
-                });
-            },
-            extension(_, { args, toReference }) {
-                return toReference({
-                    __typename: 'ExtensionType',
-                    pkgName: args?.pkgName,
-                });
-            },
-            extensionStore(_, { args, toReference }) {
-                return toReference({
-                    __typename: 'ExtensionStoreType',
-                    indexUrl: args?.indexUrl,
-                });
-            },
-            meta(_, { args, toReference }) {
-                return toReference({
-                    __typename: 'GlobalMetaType',
-                    key: args?.key,
-                });
-            },
-            downloadStatus: {
-                read(_, { toReference }) {
-                    return toReference({
-                        __typename: 'DownloadStatus',
-                        key: {},
-                    });
-                },
-                merge(_, incoming) {
-                    return incoming;
-                },
-            },
-            getWebUIUpdateStatus(_, { toReference }) {
-                return toReference({
-                    __typename: 'WebUIUpdateStatus',
-                    key: {},
-                });
-            },
-            updateStatus(_, { toReference }) {
-                return toReference({ __typename: 'UpdateStatus', key: {} });
-            },
-            lastSyncStatus(_, { toReference }) {
-                return toReference({ __typename: 'SyncStatus', key: {} });
-            },
-            chapters: {
-                keyArgs: ['condition', 'filter', 'orderBy', 'orderByType', 'order'],
-                merge(existing, incoming) {
-                    if (existing == null) {
-                        return incoming;
-                    }
-
-                    const isReFetch = !incoming.pageInfo.hasPreviousPage;
-                    const hasLessItems = existing.nodes.length > incoming.nodes.length;
-
-                    const useIncomingResponse = isReFetch && !hasLessItems;
-                    if (useIncomingResponse) {
-                        return incoming;
-                    }
-
-                    const replaceExistingItems = isReFetch && hasLessItems;
-                    if (replaceExistingItems) {
-                        const existingWithReplacedIncoming: ChapterNodeList = {
-                            ...existing,
-                            pageInfo: {
-                                ...existing.pageInfo,
-                                startCursor: incoming.pageInfo.startCursor,
-                            },
-                            nodes: [...incoming.nodes, ...existing.nodes.slice(incoming.nodes.length)],
-                        };
-
-                        return existingWithReplacedIncoming;
-                    }
-
-                    const existingWithAppendedIncoming: ChapterNodeList = {
-                        ...existing,
-                        pageInfo: {
-                            ...existing.pageInfo,
-                            endCursor: incoming.pageInfo.endCursor,
-                            hasNextPage: incoming.pageInfo.hasNextPage,
-                        },
-                        nodes: [...existing.nodes, ...incoming.nodes],
-                    };
-
-                    return existingWithAppendedIncoming;
-                },
-            },
-            settings: {
-                merge(existing, incoming) {
-                    return {
-                        ...(existing ?? {}),
-                        ...(incoming ?? {}),
-                    };
-                },
-            },
-        },
-    },
-};
+import { BaseClient, type RefreshTokenResponse, type AbortableResponse } from '@/requests/client/BaseClient';
 
 export class GraphQLClient extends BaseClient<ApolloClient, ApolloClient.Options, null> {
     readonly fetcher = null;
 
     public client!: ApolloClient;
 
-    private wsClient!: Client;
+    private wsClient!: WSClient;
 
     private wsClientAliveCheckInterval: NodeJS.Timeout | undefined = undefined;
 
     private activeConnectionSubscriptions = new Map<string, () => void>();
 
-    constructor(handleRefreshToken: (refreshToken: string) => AbortableApolloMutationResponse<UserRefreshMutation>) {
+    constructor(handleRefreshToken: (refreshToken: string) => AbortableResponse<RefreshTokenResponse>) {
         super(handleRefreshToken);
 
         this.createClient();
@@ -245,7 +75,7 @@ export class GraphQLClient extends BaseClient<ApolloClient, ApolloClient.Options
             return false;
         }
 
-        return super.shouldQueueRequest();
+        return super.shouldQueueRequest(operationName);
     }
 
     private createAuthGuardLink() {
@@ -325,11 +155,11 @@ export class GraphQLClient extends BaseClient<ApolloClient, ApolloClient.Options
 
     private createAuthLink() {
         return new SetContextLink(({ headers }) => {
-            const isAuthRequired = AuthManager.isAuthRequired();
-            const accessToken = AuthManager.getAccessToken();
+            const tm = BaseClient['tokenManager'];
+            const isAuthRequired = tm?.isAuthRequired() ?? false;
+            const accessToken = tm?.getAccessToken() ?? null;
 
             return {
-                credentials: 'include',
                 headers: {
                     ...headers,
                     ...(isAuthRequired && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
@@ -338,8 +168,8 @@ export class GraphQLClient extends BaseClient<ApolloClient, ApolloClient.Options
         });
     }
 
-    private createUploadLink() {
-        return new UploadHttpLink({ uri: () => this.getBaseUrl() });
+    private createHttpLink() {
+        return new HttpLink({ uri: () => this.getBaseUrl(), fetch });
     }
 
     private createWSLink() {
@@ -360,30 +190,31 @@ export class GraphQLClient extends BaseClient<ApolloClient, ApolloClient.Options
                 this.createErrorLink(),
                 this.createAuthLink(),
                 removeTypenameLink,
-                this.createUploadLink(),
+                this.createHttpLink(),
             ]),
         );
     }
 
     private createWSClient(lazy: boolean = true): void {
-        const heartbeatInterval = d(20).seconds.inWholeMilliseconds;
+        const heartbeatInterval = 20_000;
 
-        this.wsClient = createClient({
+        this.wsClient = createWsClient({
             lazy,
-            url: () => this.getBaseUrl().replaceAll(/http(|s)/g, 'ws'),
+            url: () => this.getBaseUrl().replace(/^http/, 'ws'),
             keepAlive: heartbeatInterval,
             retryAttempts: Number.MAX_SAFE_INTEGER,
             shouldRetry: () => true,
-            retryWait: async (retries) => {
-                const delay = Math.min(d(1).seconds.inWholeMilliseconds * 2 ** retries, heartbeatInterval);
+            retryWait: async (retries: number) => {
+                const delay = Math.min(1000 * 2 ** retries, heartbeatInterval);
 
-                return new Promise((resolve) => {
+                return new Promise<void>((resolve) => {
                     setTimeout(resolve, delay);
                 });
             },
             connectionParams: () => {
-                const isAuthRequired = AuthManager.isAuthRequired();
-                const accessToken = AuthManager.getAccessToken();
+                const tm = BaseClient['tokenManager'];
+                const isAuthRequired = tm?.isAuthRequired() ?? false;
+                const accessToken = tm?.getAccessToken() ?? null;
 
                 return {
                     Authorization: isAuthRequired && accessToken ? accessToken : undefined,
@@ -393,7 +224,7 @@ export class GraphQLClient extends BaseClient<ApolloClient, ApolloClient.Options
 
         let triedForcedReconnection = false;
         let lastHeartbeat: number = Date.now();
-        this.wsClient.on('message', async (e) => {
+        this.wsClient.on('message', async (e: WSMessage) => {
             lastHeartbeat = Date.now();
             triedForcedReconnection = false;
 
@@ -401,7 +232,9 @@ export class GraphQLClient extends BaseClient<ApolloClient, ApolloClient.Options
                 return;
             }
 
-            if (!AuthManager.isRefreshingToken() && this.isAuthError(e.payload)) {
+            const tm = BaseClient['tokenManager'];
+            const errorPayload = e.payload as readonly GraphQLFormattedError[] | undefined;
+            if (tm && !tm.isAuthRequired() && errorPayload && this.isAuthError(errorPayload)) {
                 try {
                     await BaseClient.refreshAccessToken(this.handleRefreshToken);
                     this.resetWsClient(true);
@@ -411,7 +244,7 @@ export class GraphQLClient extends BaseClient<ApolloClient, ApolloClient.Options
             }
         });
 
-        const checkHeartbeatInterval = heartbeatInterval + d(30).seconds.inWholeMilliseconds;
+        const checkHeartbeatInterval = heartbeatInterval + 30_000;
         clearInterval(this.wsClientAliveCheckInterval);
         this.wsClientAliveCheckInterval = setInterval(() => {
             const isHeartbeatMissing = Date.now() - lastHeartbeat > checkHeartbeatInterval * 1.1;
@@ -434,26 +267,18 @@ export class GraphQLClient extends BaseClient<ApolloClient, ApolloClient.Options
     protected createClient(createWsClientLazily?: boolean) {
         this.createWSClient(createWsClientLazily);
         this.client = new ApolloClient({
-            cache: new InMemoryCache({ typePolicies }),
-            devtools: { enabled: true },
+            cache: new InMemoryCache(),
             link: this.createLink(),
         });
     }
 
     public override updateConfig() {}
 
-    public useRestartSubscription(restart: () => void) {
-        const id = useId();
+    public registerSubscription(id: string, restart: () => void): void {
+        this.activeConnectionSubscriptions.set(id, restart);
+    }
 
-        this.activeConnectionSubscriptions.set(id, () => {
-            restart();
-        });
-
-        useEffect(
-            () => () => {
-                this.activeConnectionSubscriptions.delete(id);
-            },
-            [id],
-        );
+    public unregisterSubscription(id: string): void {
+        this.activeConnectionSubscriptions.delete(id);
     }
 }

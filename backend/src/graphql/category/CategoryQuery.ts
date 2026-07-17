@@ -7,13 +7,13 @@
  */
 
 import gql from 'graphql-tag';
-import { PAGE_INFO } from 'lib/graphql/common/Fragments.ts';
+import { PAGE_INFO } from '@/graphql/common/Fragments';
 import {
     CATEGORY_BASE_FIELDS,
     CATEGORY_LIBRARY_FIELDS,
     CATEGORY_SETTING_FIELDS,
-} from 'lib/graphql/category/CategoryFragments.ts';
-import { MANGA_LIBRARY_FIELDS } from 'lib/graphql/manga/MangaFragments.ts';
+} from '@/graphql/category/CategoryFragments';
+import { MANGA_LIBRARY_FIELDS } from '@/graphql/manga/MangaFragments';
 
 export const GET_CATEGORIES_BASE = gql`
     ${CATEGORY_BASE_FIELDS}

@@ -7,7 +7,7 @@
  */
 
 import gql from 'graphql-tag';
-import { MANGA_CHAPTER_NODE_FIELDS, MANGA_CHAPTER_STAT_FIELDS } from 'lib/graphql/manga/MangaFragments.ts';
+import { MANGA_CHAPTER_NODE_FIELDS, MANGA_CHAPTER_STAT_FIELDS } from '@/graphql/manga/MangaFragments';
 
 const UPDATER_MANGA_FIELDS = gql`
     ${MANGA_CHAPTER_STAT_FIELDS}

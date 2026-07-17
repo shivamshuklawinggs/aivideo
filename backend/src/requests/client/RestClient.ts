@@ -6,10 +6,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { BaseClient } from 'lib/requests/client/BaseClient.ts';
-import { AuthManager } from '@/features/authentication/AuthManager.ts';
-import type { UserRefreshMutation } from 'lib/graphql/generated/graphql.ts';
-import type { AbortableApolloMutationResponse } from 'lib/requests/RequestManager.ts';
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import { BaseClient, type RefreshTokenResponse, type AbortableResponse } from '@/requests/client/BaseClient';
 
 export enum HttpMethod {
     GET = 'GET',
@@ -19,22 +17,25 @@ export enum HttpMethod {
 }
 
 export interface IRestClient {
-    get(url: string): Promise<Response>;
-    delete(url: string): Promise<Response>;
-    post(url: string, data?: any): Promise<Response>;
-    put(url: string, data?: any): Promise<Response>;
-    patch(url: string, data?: any): Promise<Response>;
+    get(url: string): Promise<AxiosResponse>;
+    delete(url: string): Promise<AxiosResponse>;
+    post(url: string, data?: any): Promise<AxiosResponse>;
+    put(url: string, data?: any): Promise<AxiosResponse>;
+    patch(url: string, data?: any): Promise<AxiosResponse>;
+}
+
+export interface RestClientConfig {
+    headers?: Record<string, string>;
+    timeout?: number;
 }
 
 export class RestClient
-    extends BaseClient<typeof fetch, RequestInit, (url: string, data: any) => Promise<Response>>
+    extends BaseClient<AxiosInstance, RestClientConfig, (url: string, data: any) => Promise<AxiosResponse>>
     implements IRestClient
 {
-    protected client!: typeof fetch;
+    protected client!: AxiosInstance;
 
-    private config: RequestInit = {
-        credentials: 'include',
-    };
+    private config: RestClientConfig = {};
 
     public readonly fetcher = async (
         url: string,
@@ -46,41 +47,42 @@ export class RestClient
         }: {
             data?: any;
             httpMethod?: HttpMethod;
-            config?: RequestInit;
+            config?: AxiosRequestConfig;
             checkResponseIsJson?: boolean;
         } = {},
-    ): Promise<Response> =>
+    ): Promise<AxiosResponse> =>
         this.enqueueRequest(async () => {
             const updatedUrl = url.startsWith('http') ? url : `${this.getBaseUrl()}${url}`;
-            const isAuthRequired = AuthManager.isAuthRequired();
-            const accessToken = AuthManager.getAccessToken();
+            const tm = BaseClient['tokenManager'];
+            const isAuthRequired = tm?.isAuthRequired() ?? false;
+            const accessToken = tm?.getAccessToken() ?? null;
 
             await this.awaitRateLimit(updatedUrl);
 
-            let result: Response;
+            const headers: Record<string, string> = {
+                ...(isAuthRequired && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                ...(this.config.headers as any),
+                ...((config?.headers as any) ?? {}),
+            };
+
+            let result: AxiosResponse;
 
             switch (httpMethod) {
                 case HttpMethod.GET:
                     result = await this.client(updatedUrl, {
-                        ...this.config,
                         ...config,
-                        method: httpMethod,
-                        headers: {
-                            ...(isAuthRequired && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-                            ...this.config.headers,
-                            ...config?.headers,
-                        },
+                        method: 'GET',
+                        headers,
                     });
                     break;
                 case HttpMethod.POST:
                 case HttpMethod.PATCH:
                 case HttpMethod.DELETE:
                     result = await this.client(updatedUrl, {
-                        ...(isAuthRequired && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-                        ...this.config,
                         ...config,
                         method: httpMethod,
-                        body: JSON.stringify(data),
+                        headers,
+                        data: data ? JSON.stringify(data) : undefined,
                     });
                     break;
                 default:
@@ -93,7 +95,7 @@ export class RestClient
             }
 
             if (result.status === 429) {
-                this.addRateLimit(updatedUrl, result.headers.get('Retry-After'));
+                this.addRateLimit(updatedUrl, result.headers['retry-after'] as string | null | undefined);
                 return this.fetcher(url, { data, httpMethod, config, checkResponseIsJson });
             }
 
@@ -101,28 +103,30 @@ export class RestClient
                 throw new Error(`status ${result.status}: ${result.statusText}`);
             }
 
-            if (checkResponseIsJson && result.headers.get('content-type') !== 'application/json') {
+            if (checkResponseIsJson && result.headers['content-type'] !== 'application/json') {
                 throw new Error('Response is not json');
             }
 
             return result;
         });
 
-    constructor(handleRefreshToken: (refreshToken: string) => AbortableApolloMutationResponse<UserRefreshMutation>) {
+    constructor(handleRefreshToken: (refreshToken: string) => AbortableResponse<RefreshTokenResponse>) {
         super(handleRefreshToken);
 
         this.createClient();
     }
 
     private createClient(): void {
-        this.client = fetch.bind(window);
+        this.client = axios.create({
+            timeout: 30000,
+        });
     }
 
-    public updateConfig(config: RequestInit): void {
+    public updateConfig(config: RestClientConfig): void {
         this.config = { ...this.config, ...config };
     }
 
-    public getClient(): typeof fetch {
+    public getClient(): AxiosInstance {
         return this.client;
     }
 

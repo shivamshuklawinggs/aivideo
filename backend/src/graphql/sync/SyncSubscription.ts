@@ -7,7 +7,7 @@
  */
 
 import gql from 'graphql-tag';
-import { SYNC_STATUS_FIELDS } from 'lib/graphql/sync/SyncFragments.ts';
+import { SYNC_STATUS_FIELDS } from '@/graphql/sync/SyncFragments';
 
 export const SYNC_SUBSCRIPTION = gql`
     ${SYNC_STATUS_FIELDS}

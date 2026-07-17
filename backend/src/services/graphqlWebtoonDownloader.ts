@@ -147,7 +147,7 @@ export class GraphQLWebtoonDownloader {
         for (let retry = 0; retry < maxRetries && !downloaded; retry++) {
           try {
             // Download image using GraphQL service
-            const imageBuffer = await this.graphqlService.downloadPageImage(page.imageUrl);
+            const imageBuffer = await this.graphqlService.downloadPageImage(page);
             await fs.writeFile(imagePath, imageBuffer);
             
             // Verify file was created and has content
@@ -160,7 +160,7 @@ export class GraphQLWebtoonDownloader {
               downloadedImages.push({
                 page: i + 1,
                 path: imagePath,
-                url: page.imageUrl,
+                url: page,
                 size: stats.size
               });
               

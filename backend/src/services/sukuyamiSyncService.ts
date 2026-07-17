@@ -286,7 +286,7 @@ export class SukuyamiSyncService {
     
     const panels = pages.map((page, index) => ({
       pageNumber: index + 1,
-      imageUrl: page.imageUrl,
+      imageUrl: page,
       sequence: index + 1,
       description: `Page ${index + 1}`,
       duration: 3, // 3 seconds per panel by default

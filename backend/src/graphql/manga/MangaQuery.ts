@@ -7,7 +7,7 @@
  */
 
 import gql from 'graphql-tag';
-import { PAGE_INFO } from 'lib/graphql/common/Fragments.ts';
+import { PAGE_INFO } from '@/graphql/common/Fragments';
 import {
     MANGA_BASE_FIELDS,
     MANGA_LIBRARY_DUPLICATE_SCREEN_FIELDS,
@@ -16,9 +16,9 @@ import {
     MANGA_MIGRATION_FIELDS,
     MANGA_READER_FIELDS,
     MANGA_SCREEN_FIELDS,
-} from 'lib/graphql/manga/MangaFragments.ts';
-import { CHAPTER_META_FIELDS } from 'lib/graphql/chapter/ChapterFragments.ts';
-import { TRACK_RECORD_BIND_FIELDS } from 'lib/graphql/tracker/TrackRecordFragments.ts';
+} from '@/graphql/manga/MangaFragments';
+import { CHAPTER_META_FIELDS } from '@/graphql/chapter/ChapterFragments';
+import { TRACK_RECORD_BIND_FIELDS } from '@/graphql/tracker/TrackRecordFragments';
 
 export const GET_MANGA_META = gql`
     ${MANGA_META_FIELDS}

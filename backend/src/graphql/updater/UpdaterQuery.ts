@@ -7,7 +7,7 @@
  */
 
 import gql from 'graphql-tag';
-import { UPDATER_STATUS_FIELDS } from 'lib/graphql/updater/UpdaterFragments.ts';
+import { UPDATER_STATUS_FIELDS } from '@/graphql/updater/UpdaterFragments';
 
 export const GET_UPDATE_STATUS = gql`
     ${UPDATER_STATUS_FIELDS}

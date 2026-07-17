@@ -7,7 +7,7 @@
  */
 
 import gql from 'graphql-tag';
-import { SOURCE_BASE_FIELDS } from 'lib/graphql/source/SourceFragments.ts';
+import { SOURCE_BASE_FIELDS } from '@/graphql/source/SourceFragments';
 
 export const MANGA_META_FIELDS = gql`
     fragment MANGA_META_FIELDS on MangaMetaType {

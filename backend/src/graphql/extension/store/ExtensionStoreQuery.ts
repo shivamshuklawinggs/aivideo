@@ -7,8 +7,8 @@
  */
 
 import gql from 'graphql-tag';
-import { PAGE_INFO } from 'lib/graphql/common/Fragments.ts';
-import { EXTENSION_STORE_FIELDS } from 'lib/graphql/extension/store/ExtensionStoreFragments.ts';
+import { PAGE_INFO } from '@/graphql/common/Fragments';
+import { EXTENSION_STORE_FIELDS } from '@/graphql/extension/store/ExtensionStoreFragments';
 
 export const GET_EXTENSION_STORE = gql`
     ${EXTENSION_STORE_FIELDS}

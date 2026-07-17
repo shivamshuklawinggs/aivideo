@@ -7,7 +7,7 @@
  */
 
 import gql from 'graphql-tag';
-import { DOWNLOAD_UPDATES_FIELDS } from 'lib/graphql/download/DownloadFragments.ts';
+import { DOWNLOAD_UPDATES_FIELDS } from '@/graphql/download/DownloadFragments';
 
 export const DOWNLOAD_STATUS_SUBSCRIPTION = gql`
     ${DOWNLOAD_UPDATES_FIELDS}

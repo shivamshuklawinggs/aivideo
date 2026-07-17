@@ -7,7 +7,7 @@
  */
 
 import gql from 'graphql-tag';
-import { TRACK_RECORD_BIND_FIELDS } from 'lib/graphql/tracker/TrackRecordFragments.ts';
+import { TRACK_RECORD_BIND_FIELDS } from '@/graphql/tracker/TrackRecordFragments';
 
 export const TRACKER_BASE_FIELDS = gql`
     fragment TRACKER_BASE_FIELDS on TrackerType {

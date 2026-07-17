@@ -7,8 +7,8 @@
  */
 
 import gql from 'graphql-tag';
-import { SOURCE_META_FIELDS, SOURCE_SETTING_FIELDS } from 'lib/graphql/source/SourceFragments.ts';
-import { MANGA_BASE_FIELDS, MANGA_MIGRATION_FIELDS } from 'lib/graphql/manga/MangaFragments.ts';
+import { SOURCE_META_FIELDS, SOURCE_SETTING_FIELDS } from '@/graphql/source/SourceFragments';
+import { MANGA_BASE_FIELDS, MANGA_MIGRATION_FIELDS } from '@/graphql/manga/MangaFragments';
 
 export const GET_SOURCE_MANGAS_FETCH = gql`
     ${MANGA_BASE_FIELDS}

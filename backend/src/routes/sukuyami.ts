@@ -320,7 +320,9 @@ router.post('/chapters/:chapterId/video', authenticate, sukuyamiController.gener
  *       401:
  *         description: Unauthorized
  */
-router.get('/search', authenticate, sukuyamiController.searchWebtoons);
+router.get('/sources', sukuyamiController.getSources);
+
+router.get('/search', sukuyamiController.searchWebtoons);
 
 /**
  * @swagger

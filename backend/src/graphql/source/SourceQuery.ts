@@ -12,7 +12,7 @@ import {
     SOURCE_BROWSE_FIELDS,
     SOURCE_LIST_FIELDS,
     SOURCE_SETTING_FIELDS,
-} from 'lib/graphql/source/SourceFragments.ts';
+} from '@/graphql/source/SourceFragments';
 
 export const GET_SOURCE_BROWSE = gql`
     ${SOURCE_BROWSE_FIELDS}

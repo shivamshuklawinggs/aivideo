@@ -7,9 +7,9 @@
  */
 
 import gql from 'graphql-tag';
-import { PAGE_INFO } from 'lib/graphql/common/Fragments.ts';
-import { TRACKER_BIND_FIELDS, TRACKER_SETTING_FIELDS } from 'lib/graphql/tracker/TrackFragments.ts';
-import { TRACK_RECORD_SEARCH_FIELDS } from 'lib/graphql/tracker/TrackRecordFragments.ts';
+import { PAGE_INFO } from '@/graphql/common/Fragments';
+import { TRACKER_BIND_FIELDS, TRACKER_SETTING_FIELDS } from '@/graphql/tracker/TrackFragments';
+import { TRACK_RECORD_SEARCH_FIELDS } from '@/graphql/tracker/TrackRecordFragments';
 
 export const GET_TRACKERS_SETTINGS = gql`
     ${PAGE_INFO}

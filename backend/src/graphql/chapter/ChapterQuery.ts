@@ -7,14 +7,14 @@
  */
 
 import gql from 'graphql-tag';
-import { PAGE_INFO } from 'lib/graphql/common/Fragments.ts';
+import { PAGE_INFO } from '@/graphql/common/Fragments';
 import {
     CHAPTER_LIST_FIELDS,
     CHAPTER_READER_FIELDS,
     CHAPTER_STATE_FIELDS,
     CHAPTER_UPDATE_LIST_FIELDS,
     CHAPTER_HISTORY_LIST_FIELDS,
-} from 'lib/graphql/chapter/ChapterFragments.ts';
+} from '@/graphql/chapter/ChapterFragments';
 
 // returns the current chapters from the database
 export const GET_CHAPTERS_READER = gql`

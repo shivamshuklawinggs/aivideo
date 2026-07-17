@@ -353,7 +353,7 @@ class SukuyamiController {
   // Search webtoons via SUKUYAMI API
   async searchWebtoons(req: Request, res: Response, next: NextFunction) {
     try {
-      const { query, limit = 20 } = req.query;
+      const { query,page=1, } = req.query;
 
       if (!query || typeof query !== 'string') {
         return res.status(400).json({
@@ -364,7 +364,7 @@ class SukuyamiController {
 
       const results = await graphqlService.searchManga(
         query,
-        parseInt(limit as string)
+        parseInt(page as string),
       );
 
       res.json({
@@ -546,6 +546,20 @@ class SukuyamiController {
 
     } catch (error) {
       logger.error('Health check failed:', error);
+      return next(error);
+    }
+  }
+  // List available sources from SUKUYAMI server
+  async getSources(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const sources = await graphqlService.getSukumaiSources();
+
+      res.json({
+        success: true,
+        data: sources
+      });
+    } catch (error) {
+      logger.error('Get sources failed:', error);
       return next(error);
     }
   }

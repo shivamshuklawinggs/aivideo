@@ -7,7 +7,7 @@
  */
 
 import gql from 'graphql-tag';
-import { GLOBAL_METADATA } from 'lib/graphql/common/Fragments.ts';
+import { GLOBAL_METADATA } from '@/graphql/common/Fragments';
 
 export const UPDATE_GLOBAL_METADATA = gql`
     ${GLOBAL_METADATA}

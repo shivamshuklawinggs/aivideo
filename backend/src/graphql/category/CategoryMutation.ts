@@ -7,7 +7,7 @@
  */
 
 import gql from 'graphql-tag';
-import { CATEGORY_META_FIELDS, CATEGORY_SETTING_FIELDS } from 'lib/graphql/category/CategoryFragments.ts';
+import { CATEGORY_META_FIELDS, CATEGORY_SETTING_FIELDS } from '@/graphql/category/CategoryFragments';
 
 export const CREATE_CATEGORY = gql`
     ${CATEGORY_SETTING_FIELDS}

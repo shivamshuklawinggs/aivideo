@@ -6,15 +6,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { AppStorage } from 'lib/storage/AppStorage.ts';
-import type { UserRefreshMutation } from 'lib/graphql/generated/graphql.ts';
-import { AuthManager } from '@/features/authentication/AuthManager.ts';
-import type { AbortableApolloMutationResponse } from 'lib/requests/RequestManager.ts';
-import { SubpathUtil } from 'lib/utils/SubpathUtil.ts';
-import { ControlledPromise } from 'lib/ControlledPromise.ts';
-import { d } from 'koration';
-import dayjs from 'dayjs';
-
 interface QueuedRequest {
     execute: () => void;
     resolve: (value: any) => void;
@@ -26,16 +17,46 @@ interface RateLimitInfo {
     retryAfter: number;
 }
 
+export interface TokenManager {
+    getAccessToken(): string | null;
+    getRefreshToken(): string | null;
+    setAccessToken(token: string): void;
+    isAuthRequired(): boolean;
+    isAuthInitialized(): boolean;
+    setAuthInitialized(value: boolean): void;
+    setAuthRequired(value: boolean | null): void;
+    setIsRefreshingToken(value: boolean): void;
+    shouldQueueRequests(): boolean;
+    removeTokens(): void;
+}
+
+export interface RefreshTokenResponse {
+    refreshToken: { accessToken: string };
+}
+
+export interface AbortableResponse<T> {
+    response: Promise<{ data?: T }>;
+}
+
+export class ControlledPromise<T> {
+    promise: Promise<T>;
+    resolve!: (value: T | PromiseLike<T>) => void;
+    reject!: (reason?: any) => void;
+
+    constructor() {
+        this.promise = new Promise((resolve, reject) => {
+            this.resolve = resolve;
+            this.reject = reject;
+        });
+    }
+}
+
 export abstract class BaseClient<Client, ClientConfig, Fetcher> {
-    private static readonly RATE_LIMIT_STORAGE_KEY = 'RATE_LIMIT_STATE';
-
-    static readonly BASE_URL_KEY = 'serverBaseURL';
-
     protected abstract client: Client;
 
     public abstract readonly fetcher: Fetcher;
 
-    private static activeTokenRefreshPromise: Promise<UserRefreshMutation | null | undefined> | null = null;
+    private static activeTokenRefreshPromise: Promise<RefreshTokenResponse | null | undefined> | null = null;
 
     private static onTokenRefreshComplete: (() => void) | null = null;
 
@@ -43,12 +64,20 @@ export abstract class BaseClient<Client, ClientConfig, Fetcher> {
 
     private static rateLimitState = new Map<string, RateLimitInfo>();
 
-    protected constructor(
-        protected handleRefreshToken: (refreshToken: string) => AbortableApolloMutationResponse<UserRefreshMutation>,
-    ) {
-        const rateLimitState = AppStorage.local.getItemParsed(BaseClient.RATE_LIMIT_STORAGE_KEY, {});
+    protected static tokenManager: TokenManager | null = null;
 
-        BaseClient.rateLimitState = new Map(Object.entries(rateLimitState));
+    protected static baseUrl: string = process.env.SUKUYAMI_SERVER_URL || 'http://localhost:4567';
+
+    protected constructor(
+        protected handleRefreshToken: (refreshToken: string) => AbortableResponse<RefreshTokenResponse>,
+    ) {}
+
+    public static setTokenManager(manager: TokenManager): void {
+        BaseClient.tokenManager = manager;
+    }
+
+    public static setBaseUrl(url: string): void {
+        BaseClient.baseUrl = url;
     }
 
     public reset(): void {
@@ -61,13 +90,18 @@ export abstract class BaseClient<Client, ClientConfig, Fetcher> {
     }
 
     protected static async refreshAccessToken(
-        refreshFn: (refreshToken: string) => AbortableApolloMutationResponse<UserRefreshMutation>,
-    ): Promise<UserRefreshMutation | null | undefined> {
-        const refreshToken = AuthManager.getRefreshToken();
+        refreshFn: (refreshToken: string) => AbortableResponse<RefreshTokenResponse>,
+    ): Promise<RefreshTokenResponse | null | undefined> {
+        const tm = BaseClient.tokenManager;
+        if (!tm) {
+            throw new Error('Token manager not set');
+        }
 
-        if (!AuthManager.isAuthInitialized()) {
-            AuthManager.setAuthInitialized(true);
-            AuthManager.setAuthRequired(true);
+        const refreshToken = tm.getRefreshToken();
+
+        if (!tm.isAuthInitialized()) {
+            tm.setAuthInitialized(true);
+            tm.setAuthRequired(true);
         }
 
         if (!refreshToken) {
@@ -78,7 +112,7 @@ export abstract class BaseClient<Client, ClientConfig, Fetcher> {
             return this.activeTokenRefreshPromise;
         }
 
-        AuthManager.setIsRefreshingToken(true);
+        tm.setIsRefreshingToken(true);
 
         const refreshRequest = refreshFn(refreshToken).response;
         this.activeTokenRefreshPromise = refreshRequest.then((result) => result.data);
@@ -91,40 +125,28 @@ export abstract class BaseClient<Client, ClientConfig, Fetcher> {
                 throw new Error('No refreshed access token returned');
             }
 
-            AuthManager.setAccessToken(data.refreshToken.accessToken);
+            tm.setAccessToken(data.refreshToken.accessToken);
 
             BaseClient.onTokenRefreshComplete?.();
 
             return data;
         } catch (e) {
-            AuthManager.removeTokens();
+            tm.removeTokens();
             throw e;
         } finally {
             this.activeTokenRefreshPromise = null;
-            AuthManager.setIsRefreshingToken(false);
+            tm.setIsRefreshingToken(false);
         }
     }
 
-    private static getBaseUrl(): string {
-        const { hostname, port, protocol } = window.location;
-
-        const defaultUrl = import.meta.env.DEV
-            ? import.meta.env.VITE_SERVER_URL_DEFAULT
-            : `${protocol}//${hostname}:${port}`;
-
-        const serverBaseURL = AppStorage.local.getItemParsed(BaseClient.BASE_URL_KEY, defaultUrl);
-
-        // Apply subpath configuration to the base URL
-        return SubpathUtil.getApiBaseUrl(serverBaseURL);
-    }
-
     public getBaseUrl(): string {
-        return BaseClient.getBaseUrl();
+        return BaseClient.baseUrl;
     }
 
-    // oxlint-disable-next-line no-unused-vars
-    protected shouldQueueRequest(operationName?: string): boolean {
-        return AuthManager.shouldQueueRequests();
+    protected shouldQueueRequest(_operationName?: string): boolean {
+        const tm = BaseClient.tokenManager;
+        if (!tm) return false;
+        return tm.shouldQueueRequests();
     }
 
     protected enqueueRequest<T>(executor: () => Promise<T>, operationName?: string): Promise<T> {
@@ -167,32 +189,24 @@ export abstract class BaseClient<Client, ClientConfig, Fetcher> {
 
     public abstract updateConfig(config: Partial<ClientConfig>): void;
 
-    private static saveRateLimits() {
-        AppStorage.local.setItem(
-            BaseClient.RATE_LIMIT_STORAGE_KEY,
-            Object.fromEntries([...BaseClient.rateLimitState.entries()]),
-        );
-    }
-
     private convertRetryAfter(retryAfter: string | null | undefined): number {
         if (retryAfter == null) {
-            return d(1).minutes.inWholeMilliseconds;
+            return 60_000;
         }
 
         const seconds = parseInt(retryAfter, 10);
         if (!Number.isNaN(seconds)) {
-            return d(seconds).seconds.inWholeMilliseconds;
+            return seconds * 1000;
         }
 
         const date = new Date(retryAfter);
-
-        return dayjs(date).diff();
+        return date.getTime() - Date.now();
     }
 
     protected getOriginFromUrl(url: string): string {
         const { origin } = new URL(url);
 
-        if (origin.startsWith(BaseClient.getBaseUrl())) {
+        if (origin.startsWith(BaseClient.baseUrl)) {
             return url;
         }
 
@@ -204,12 +218,10 @@ export abstract class BaseClient<Client, ClientConfig, Fetcher> {
             timestamp: Date.now(),
             retryAfter: this.convertRetryAfter(retryAfter),
         });
-        BaseClient.saveRateLimits();
     }
 
     private deleteRateLimit(origin: string) {
         BaseClient.rateLimitState.delete(origin);
-        BaseClient.saveRateLimits();
     }
 
     protected getRateLimitTimeout(url: string): number {
