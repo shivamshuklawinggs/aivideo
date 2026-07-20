@@ -142,7 +142,7 @@ export class SukuyamiCronService {
         }
 
         const result = await this.syncService.syncAllWebtoons({
-          userId: this.defaultUserId,
+       
           syncChapters: true,
           forceUpdate: false
         });
@@ -427,7 +427,7 @@ export class SukuyamiCronService {
           throw new Error('Default user ID not configured');
         }
         await this.syncService.syncAllWebtoons({
-          userId: this.defaultUserId,
+      
           syncChapters: true
         });
         break;

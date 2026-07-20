@@ -2,7 +2,6 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IWebtoon extends Document {
   _id: mongoose.Types.ObjectId;
-  userId: mongoose.Types.ObjectId;
   sukuyamiId?: string; // SUKUYAMI manga ID
   title: string;
   description?: string;
@@ -10,7 +9,7 @@ export interface IWebtoon extends Document {
   coverImage?: string; // SUKUYAMI cover image URL
   genres: string[];
   author?: string;
-  status: 'ongoing' | 'completed' | 'hiatus';
+  status: string;
   totalChapters: number;
   lastUpdated?: Date; // Last chapter update from SUKUYAMI
   sourceUrl?: string;
@@ -46,12 +45,7 @@ export interface IWebtoon extends Document {
 
 const WebtoonSchema = new Schema<IWebtoon>(
   {
-    userId: {
-      type: Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-      index: true,
-    },
+   
     sukuyamiId: {
       type: String,
       index: true,
@@ -85,7 +79,6 @@ const WebtoonSchema = new Schema<IWebtoon>(
     },
     status: {
       type: String,
-      enum: ['ongoing', 'completed', 'hiatus'],
       default: 'ongoing',
     },
     totalChapters: {
@@ -182,7 +175,6 @@ const WebtoonSchema = new Schema<IWebtoon>(
   }
 );
 
-WebtoonSchema.index({ userId: 1, createdAt: -1 });
 WebtoonSchema.index({ title: 'text', description: 'text' });
 WebtoonSchema.index({ genres: 1 });
 WebtoonSchema.index({ status: 1 });

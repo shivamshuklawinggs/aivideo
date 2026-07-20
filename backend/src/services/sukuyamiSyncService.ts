@@ -5,7 +5,6 @@ import SukuyamiGraphQLService, { MangaInfo, ChapterInfo } from './sukuyamiGraphQ
 import logger from '../config/logger';
 
 export interface SyncOptions {
-  userId: mongoose.Types.ObjectId;
   webtoonIds?: string[]; // Specific webtoon IDs to sync
   forceUpdate?: boolean; // Force update even if recently synced
   syncChapters?: boolean; // Sync chapters as well
@@ -45,8 +44,6 @@ export class SukuyamiSyncService {
     };
 
     try {
-      logger.info(`Starting SUKUYAMI sync for user: ${options.userId}`);
-
       // Get webtoons to sync
       let webtoonsToSync: MangaInfo[];
       
@@ -125,7 +122,7 @@ export class SukuyamiSyncService {
       const existingWebtoon = await Webtoon.findOne({
         $or: [
           { sukuyamiId: webtoonInfo.id },
-          { title: webtoonInfo.title, userId: options.userId }
+          { title: webtoonInfo.title}
         ]
       });
 
@@ -139,14 +136,14 @@ export class SukuyamiSyncService {
         }
       } else {
         // Create new webtoon
-        await this.createWebtoon(webtoonInfo, options.userId);
+        await this.createWebtoon(webtoonInfo);
         isNew = true;
         logger.info(`Added new webtoon: ${webtoonInfo.title}`);
       }
 
       // Sync chapters if requested
       if (options.syncChapters) {
-        const chapterResult = await this.syncChapters(webtoonInfo.id, options.userId);
+        const chapterResult = await this.syncChapters(webtoonInfo.id);
         chaptersAdded = chapterResult.added;
         chaptersUpdated = chapterResult.updated;
         chaptersFailed = chapterResult.failed;
@@ -180,9 +177,8 @@ export class SukuyamiSyncService {
     return false;
   }
 
-  async createWebtoon(webtoonInfo: MangaInfo, userId: mongoose.Types.ObjectId): Promise<IWebtoon> {
+  async createWebtoon(webtoonInfo: MangaInfo, ): Promise<IWebtoon> {
     const webtoon = new Webtoon({
-      userId,
       sukuyamiId: webtoonInfo.id,
       title: webtoonInfo.title,
       description: webtoonInfo.description,
@@ -227,7 +223,7 @@ export class SukuyamiSyncService {
     return await existing.save();
   }
 
-  async syncChapters(sukuyamiWebtoonId: string, userId: mongoose.Types.ObjectId): Promise<{
+  async syncChapters(sukuyamiWebtoonId: string): Promise<{
     added: number;
     updated: number;
     failed: number;
@@ -236,7 +232,7 @@ export class SukuyamiSyncService {
 
     try {
       // Get the webtoon from our database
-      const webtoon = await Webtoon.findOne({ sukuyamiId: sukuyamiWebtoonId, userId });
+      const webtoon = await Webtoon.findOne({ sukuyamiId: sukuyamiWebtoonId });
       if (!webtoon) {
         throw new Error(`Webtoon not found: ${sukuyamiWebtoonId}`);
       }
@@ -258,7 +254,7 @@ export class SukuyamiSyncService {
             result.updated++;
           } else {
             // Create new chapter
-            await this.createChapter(chapterInfo, webtoon._id, userId);
+            await this.createChapter(chapterInfo, webtoon._id,);
             result.added++;
           }
 
@@ -280,7 +276,7 @@ export class SukuyamiSyncService {
     }
   }
 
-  private async createChapter(chapterInfo: ChapterInfo, webtoonId: mongoose.Types.ObjectId, userId: mongoose.Types.ObjectId): Promise<IChapter> {
+  private async createChapter(chapterInfo: ChapterInfo, webtoonId: mongoose.Types.ObjectId): Promise<IChapter> {
     // Get pages for this chapter
     const pages = await this.graphqlService.getChapterPages(chapterInfo.id);
     
@@ -295,7 +291,6 @@ export class SukuyamiSyncService {
 
     const chapter = new Chapter({
       webtoonId,
-      userId,
       sukuyamiChapterId: chapterInfo.id,
       chapterNumber: chapterInfo.number,
       title: chapterInfo.title,
@@ -368,7 +363,7 @@ export class SukuyamiSyncService {
             logger.info(`New chapters found for ${webtoon.title}: ${webtoon.sukuyamiData.totalSourceChapters} -> ${mangaInfo.totalChapters}`);
             
             // Sync chapters
-            const chapterResult = await this.syncChapters(webtoon.sukuyamiId!, webtoon.userId);
+            const chapterResult = await this.syncChapters(webtoon.sukuyamiId!);
             
             result.chapters.added += chapterResult.added;
             result.chapters.updated += chapterResult.updated;

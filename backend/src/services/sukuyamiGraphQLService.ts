@@ -91,7 +91,7 @@ export class SukuyamiGraphQLService {
         query: queryString,
         variables,
       });
-      console.log(response.data)
+      console.log((response.data.data as unknown as any).fetchSourceManga?.mangas)
       console.log({
         query: queryString,
         variables,

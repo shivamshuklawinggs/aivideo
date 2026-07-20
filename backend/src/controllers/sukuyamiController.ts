@@ -22,7 +22,6 @@ class SukuyamiController {
   // Get all webtoons from database with pagination and filtering
   async getWebtoons(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.user?.id;
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
       const status = req.query.status as string;
@@ -34,7 +33,7 @@ class SukuyamiController {
       const skip = (page - 1) * limit;
 
       // Build filter
-      const filter: any = { userId };
+      const filter: Record<string, any> = { };
       
       if (status && status !== 'all') {
         filter.status = status;
@@ -53,14 +52,14 @@ class SukuyamiController {
       }
 
       // Build sort
-      const sort: any = {};
+      const sort: Record<string, 1 | -1> = {};
       sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
+     console.log('Filter:', filter);
+     console.log('Sort:', sort);
       const webtoons = await Webtoon.find(filter)
         .sort(sort)
         .skip(skip)
         .limit(limit)
-        .populate('userId', 'username email')
         .lean();
 
       const total = await Webtoon.countDocuments(filter);
@@ -90,10 +89,8 @@ class SukuyamiController {
   async getWebtoon(req: Request, res: Response, next: NextFunction) {
     try {
       const { webtoonId } = req.params;
-      const userId = req.user?.id;
 
-      const webtoon = await Webtoon.findOne({ _id: webtoonId, userId })
-        .populate('userId', 'username email');
+      const webtoon = await Webtoon.findOne({ _id: webtoonId })
 
       if (!webtoon) {
         return res.status(404).json({
@@ -151,13 +148,12 @@ class SukuyamiController {
   async getChapters(req: Request, res: Response, next: NextFunction) {
     try {
       const { webtoonId } = req.params;
-      const userId = req.user?.id;
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 50;
       const status = req.query.status as string;
 
       // Verify webtoon belongs to user
-      const webtoon = await Webtoon.findOne({ _id: webtoonId, userId });
+      const webtoon = await Webtoon.findOne({ _id: webtoonId });
       if (!webtoon) {
         return res.status(404).json({
           success: false,
@@ -206,10 +202,9 @@ class SukuyamiController {
   async getChapter(req: Request, res: Response, next: NextFunction) {
     try {
       const { chapterId } = req.params;
-      const userId = req.user?.id;
-
+    
       const chapter = await Chapter.findById(chapterId)
-        .populate('webtoonId', 'title userId')
+      
         .lean();
 
       if (!chapter) {
@@ -219,15 +214,7 @@ class SukuyamiController {
         });
       }
 
-      // Verify user owns the webtoon
-      const webtoon = chapter.webtoonId as any;
-      if (webtoon.userId.toString() !== userId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied'
-        });
-      }
-
+    
       res.json({
         success: true,
         data: { chapter }
@@ -246,7 +233,6 @@ class SukuyamiController {
       const { webtoonIds, forceUpdate, syncChapters } = req.body;
 
       const options: SyncOptions = {
-        userId: new mongoose.Types.ObjectId(userId),
         webtoonIds,
         forceUpdate: forceUpdate || false,
         syncChapters: syncChapters !== false
@@ -272,7 +258,6 @@ class SukuyamiController {
   async generateScript(req: Request, res: Response, next: NextFunction) {
     try {
       const { chapterId } = req.params;
-      const userId = req.user?.id;
       const { style, durationPerPanel, model } = req.body;
 
       // Verify chapter belongs to user
@@ -284,14 +269,7 @@ class SukuyamiController {
         });
       }
 
-      const webtoon = chapter.webtoonId as any;
-      if (webtoon.userId.toString() !== userId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied'
-        });
-      }
-
+    
       const script = await scriptService.generateScriptForChapter(
         new mongoose.Types.ObjectId(chapterId),
         { style, durationPerPanel, model }
@@ -313,7 +291,6 @@ class SukuyamiController {
   async generateVideo(req: Request, res: Response, next: NextFunction) {
     try {
       const { chapterId } = req.params;
-      const userId = req.user?.id;
       const { format, quality, fps } = req.body;
 
       // Verify chapter belongs to user
@@ -325,13 +302,7 @@ class SukuyamiController {
         });
       }
 
-      const webtoon = chapter.webtoonId as any;
-      if (webtoon.userId.toString() !== userId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied'
-        });
-      }
+      
 
       const video = await videoService.generateVideoForChapter(
         new mongoose.Types.ObjectId(chapterId),
@@ -385,7 +356,6 @@ class SukuyamiController {
   // Add webtoon to user's collection
   async addWebtoon(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.user?.id;
       const { sukuyamiId } = req.body;
 
       if (!sukuyamiId) {
@@ -397,7 +367,7 @@ class SukuyamiController {
 
       // Check if webtoon already exists for user
       const existing = await Webtoon.findOne({
-        userId,
+       
         sukuyamiId
       });
 
@@ -416,15 +386,14 @@ class SukuyamiController {
           message: 'Webtoon not found in SUKUYAMI'
         });
       }
-
+    console.log("webtoonInfo",webtoonInfo)
       // Create webtoon in database
       const webtoon = await syncService.createWebtoon(
         webtoonInfo,
-        new mongoose.Types.ObjectId(userId)
       );
 
       // Sync chapters
-      await syncService.syncChapters(sukuyamiId, new mongoose.Types.ObjectId(userId));
+      await syncService.syncChapters(sukuyamiId,);
 
       res.status(201).json({
         success: true,
@@ -473,9 +442,8 @@ class SukuyamiController {
   }
 
   // Get dashboard stats
-  async getDashboardStats(req: Request, res: Response, next: NextFunction) {
+  async getDashboardStats(_req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.user?.id;
 
       const [
         totalWebtoons,
@@ -486,13 +454,13 @@ class SukuyamiController {
         chaptersWithVideo,
         recentActivity
       ] = await Promise.all([
-        Webtoon.countDocuments({ userId }),
-        Webtoon.countDocuments({ userId, status: 'ongoing' }),
-        Webtoon.countDocuments({ userId, status: 'completed' }),
-        Chapter.countDocuments({ userId }),
-        Chapter.countDocuments({ userId, status: 'completed' }),
-        Chapter.countDocuments({ userId, videoUrl: { $exists: true } }),
-        Chapter.find({ userId })
+        Webtoon.countDocuments({  }),
+        Webtoon.countDocuments({  status: 'ongoing' }),
+        Webtoon.countDocuments({  status: 'completed' }),
+        Chapter.countDocuments({  }),
+        Chapter.countDocuments({  status: 'completed' }),
+        Chapter.countDocuments({  videoUrl: { $exists: true } }),
+        Chapter.find({  })
           .sort({ updatedAt: -1 })
           .limit(5)
           .select('title chapterNumber status updatedAt videoGeneratedAt')
