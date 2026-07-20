@@ -32,6 +32,9 @@ import {
   TextSnippet,
   Refresh,
   Translate,
+  Save,
+  Subtitles,
+  ClosedCaption,
 } from '@mui/icons-material';
 import type * as Tesseract from 'tesseract.js';
 
@@ -77,6 +80,22 @@ function clamp(min: number, value: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function formatSrtTime(seconds: number) {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const ms = Math.round((seconds % 1) * 1000);
+  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
+}
+
+function formatVttTime(seconds: number) {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const ms = Math.round((seconds % 1) * 1000);
+  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+}
+
 export default function VideoEditor({
   open,
   onClose,
@@ -92,10 +111,12 @@ export default function VideoEditor({
   const [resultBlob, setResultBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
+  const [scenesInput, setScenesInput] = useState<string>('[]');
   const [isExtracting, setIsExtracting] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [wordsPerSecond, setWordsPerSecond] = useState(DEFAULT_WORDS_PER_SECOND);
   const [lang, setLang] = useState('eng');
+  const [subtitleLang, setSubtitleLang] = useState<'text' | 'hindi'>('hindi');
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -116,8 +137,13 @@ export default function VideoEditor({
       setProgress(0);
       setError(null);
       setScenes([]);
+      setScenesInput('[]');
     }
   }, [open, pages]);
+
+  useEffect(() => {
+    setScenesInput(JSON.stringify(scenes, null, 2));
+  }, [scenes]);
 
   useEffect(() => {
     return () => {
@@ -430,6 +456,76 @@ export default function VideoEditor({
     }
   };
 
+  const applyScenesInput = () => {
+    try {
+      const parsed = JSON.parse(scenesInput);
+      if (!Array.isArray(parsed)) throw new Error('Scenes must be an array');
+      const next: Scene[] = parsed.map((s: any, i: number) => {
+        const text = typeof s.text === 'string' ? s.text : '';
+        const hindi = typeof s.hindi === 'string' ? s.hindi : undefined;
+        const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
+        const duration = clamp(
+          MIN_SCENE_DURATION,
+          SCENE_BASE_DURATION + wordCount / wordsPerSecond,
+          MAX_SCENE_DURATION
+        );
+        return { index: i, text, wordCount, duration, hindi };
+      });
+      setScenes(next);
+      setClips((prev) =>
+        prev.map((clip, i) => ({
+          ...clip,
+          duration: next[i]?.duration ?? clip.duration,
+        }))
+      );
+    } catch (e: any) {
+      setError('Invalid scenes JSON: ' + e.message);
+    }
+  };
+
+  const generateSRT = () => {
+    let time = 0;
+    const lines: string[] = [];
+    scenes.forEach((scene, i) => {
+      const start = time;
+      const end = time + (clips[i]?.duration ?? scene.duration);
+      const text = subtitleLang === 'hindi' ? scene.hindi || scene.text : scene.text;
+      lines.push(`${i + 1}`);
+      lines.push(`${formatSrtTime(start)} --> ${formatSrtTime(end)}`);
+      lines.push(text);
+      lines.push('');
+      time = end;
+    });
+    return lines.join('\n').trim();
+  };
+
+  const generateVTT = () => {
+    let time = 0;
+    const lines: string[] = ['WEBVTT', ''];
+    scenes.forEach((scene, i) => {
+      const start = time;
+      const end = time + (clips[i]?.duration ?? scene.duration);
+      const text = subtitleLang === 'hindi' ? scene.hindi || scene.text : scene.text;
+      lines.push(`${i + 1}`);
+      lines.push(`${formatVttTime(start)} --> ${formatVttTime(end)}`);
+      lines.push(text);
+      lines.push('');
+      time = end;
+    });
+    return lines.join('\n').trim();
+  };
+
+  const downloadSubtitles = (content: string, ext: 'srt' | 'vtt') => {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const titleSafe = (title || 'chapter').replace(/[^a-z0-9]/gi, '_');
+    a.download = `${titleSafe}_${chapterNumber || '0'}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const extractScenes = async () => {
     if (!clips.length) return;
     setIsExtracting(true);
@@ -591,14 +687,55 @@ export default function VideoEditor({
             {scenes.length > 0 && (
               <Box mb={2}>
                 <TextField
-                  label="Scenes JSON"
+                  label="Scenes JSON (editable)"
                   multiline
                   fullWidth
                   minRows={6}
                   maxRows={10}
-                  value={JSON.stringify(scenes, null, 2)}
-                  InputProps={{ readOnly: true }}
+                  value={scenesInput}
+                  onChange={(e) => setScenesInput(e.target.value)}
+                  helperText="Edit scene text, then Apply to update durations/subtitles"
                 />
+                <Box display="flex" gap={1} mt={1} flexWrap="wrap" alignItems="center">
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<Save />}
+                    onClick={applyScenesInput}
+                    disabled={isExtracting || isTranslating}
+                  >
+                    Apply
+                  </Button>
+                  <FormControl size="small" sx={{ minWidth: 120 }}>
+                    <InputLabel>Subtitles</InputLabel>
+                    <Select
+                      value={subtitleLang}
+                      label="Subtitles"
+                      onChange={(e) => setSubtitleLang(e.target.value as 'text' | 'hindi')}
+                    >
+                      <MenuItem value="hindi">Hindi</MenuItem>
+                      <MenuItem value="text">Original</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<Subtitles />}
+                    onClick={() => downloadSubtitles(generateSRT(), 'srt')}
+                    disabled={!scenes.length}
+                  >
+                    SRT
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<ClosedCaption />}
+                    onClick={() => downloadSubtitles(generateVTT(), 'vtt')}
+                    disabled={!scenes.length}
+                  >
+                    VTT
+                  </Button>
+                </Box>
               </Box>
             )}
             <List dense>

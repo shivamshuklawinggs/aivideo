@@ -33,7 +33,8 @@ class VoiceService {
   async generateSpeech(
     text: string,
     voiceProfileId: string,
-    outputPath: string
+    outputPath: string,
+    language: string = 'en'
   ): Promise<string> {
     try {
       const response = await axios.post(
@@ -41,7 +42,7 @@ class VoiceService {
         {
           text,
           voice_id: voiceProfileId,
-          language: 'en',
+          language,
         },
         {
           responseType: 'arraybuffer',
@@ -61,7 +62,8 @@ class VoiceService {
   async generateNarration(
     scriptSegments: any[],
     voiceProfileId: string,
-    outputDir: string
+    outputDir: string,
+    language: string = 'en'
   ): Promise<string[]> {
     const audioFiles: string[] = [];
 
@@ -70,7 +72,7 @@ class VoiceService {
       const outputPath = path.join(outputDir, `segment_${i + 1}.wav`);
 
       try {
-        await this.generateSpeech(segment.narration, voiceProfileId, outputPath);
+        await this.generateSpeech(segment.text || segment.narration, voiceProfileId, outputPath, language);
         audioFiles.push(outputPath);
       } catch (error) {
         logger.error(`Failed to generate narration for segment ${i + 1}:`, error);

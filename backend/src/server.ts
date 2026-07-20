@@ -5,12 +5,14 @@ import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
+import path from 'path';
 import database from './config/database';
 import logger from './config/logger';
 import errorHandler from './middlewares/errorHandler';
 import { swaggerUi, specs } from './config/swagger';
 import AuthRoutes from './routes/auth';
 import SukuyamiRoutes from './routes/sukuyami';
+import VoiceRoutes from './routes/voice';
 import { initializeRabbitMQSystem } from './config/rabbitmq';
 
 dotenv.config();
@@ -27,6 +29,8 @@ app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
+app.use(express.static(path.join(process.cwd(), 'public')));
+app.use('/storage', express.static(path.join(process.cwd(), 'storage')));
 app.use(morgan('combined', {
   stream: {
     write: (message: string) => logger.info(message.trim()),
@@ -54,6 +58,7 @@ app.get('/', (_req, res) => {
 // API Routes
 app.use('/api/auth', AuthRoutes);
 app.use('/api/sukuyami', SukuyamiRoutes);
+app.use('/api/voice', VoiceRoutes);
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
