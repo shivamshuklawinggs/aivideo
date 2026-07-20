@@ -86,6 +86,10 @@ class VoiceController {
         fs.mkdirSync(outputDir, { recursive: true });
       }
 
+      const protocol = req.protocol || 'http';
+      const host = req.get('host') || 'localhost:5000';
+      const baseUrl = `${protocol}://${host}`;
+
       const audioFiles: { segmentIndex: number; url: string }[] = [];
       for (let i = 0; i < segments.length; i++) {
         const text = typeof segments[i] === 'string' ? segments[i] : segments[i].text;
@@ -94,8 +98,8 @@ class VoiceController {
         const outputPath = path.join(outputDir, `segment_${i + 1}.wav`);
         await VoiceService.generateSpeech(text, voiceProfileId, outputPath, language);
 
-        const relativeUrl = `/storage/narrations/${voiceProfileId}/segment_${i + 1}.wav`;
-        audioFiles.push({ segmentIndex: i, url: relativeUrl });
+        const url = `${baseUrl}/storage/narrations/${voiceProfileId}/segment_${i + 1}.wav`;
+        audioFiles.push({ segmentIndex: i, url });
       }
 
       res.json({

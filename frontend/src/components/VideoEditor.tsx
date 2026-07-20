@@ -35,8 +35,11 @@ import {
   Save,
   Subtitles,
   ClosedCaption,
+  RecordVoiceOver,
 } from '@mui/icons-material';
 import type * as Tesseract from 'tesseract.js';
+import { voiceApi, VoiceSample } from '@/services/api/voiceApi';
+import { apiClient } from '@/services/api/apiClient';
 
 type Effect = 'none' | 'fade' | 'zoom' | 'slide' | 'kenburns';
 
@@ -117,11 +120,17 @@ export default function VideoEditor({
   const [wordsPerSecond, setWordsPerSecond] = useState(DEFAULT_WORDS_PER_SECOND);
   const [lang, setLang] = useState('eng');
   const [subtitleLang, setSubtitleLang] = useState<'text' | 'hindi'>('hindi');
+  const [voiceSamples, setVoiceSamples] = useState<VoiceSample[]>([]);
+  const [selectedSampleId, setSelectedSampleId] = useState<string>('');
+  const [voiceProfileId, setVoiceProfileId] = useState<string | null>(null);
+  const [isCloning, setIsCloning] = useState(false);
+  const [isNarrating, setIsNarrating] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
     if (open && pages.length) {
@@ -138,12 +147,28 @@ export default function VideoEditor({
       setError(null);
       setScenes([]);
       setScenesInput('[]');
+      setVoiceProfileId(null);
+      setSelectedSampleId('');
     }
   }, [open, pages]);
 
   useEffect(() => {
     setScenesInput(JSON.stringify(scenes, null, 2));
   }, [scenes]);
+
+  useEffect(() => {
+    if (open) {
+      voiceApi
+        .getVoiceSamples()
+        .then((samples) => {
+          setVoiceSamples(samples);
+          const defaultSample =
+            samples.find((s) => s.fileExists && s.isDefault) || samples.find((s) => s.fileExists);
+          if (defaultSample) setSelectedSampleId(defaultSample.id);
+        })
+        .catch(() => setError('Failed to load voice samples'));
+    }
+  }, [open]);
 
   useEffect(() => {
     return () => {
@@ -524,6 +549,143 @@ export default function VideoEditor({
     a.download = `${titleSafe}_${chapterNumber || '0'}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const cloneVoice = async () => {
+    if (!selectedSampleId) return;
+    setIsCloning(true);
+    setError(null);
+    try {
+      const data = await voiceApi.cloneVoice(selectedSampleId);
+      setVoiceProfileId(data.voiceProfileId);
+    } catch (e: any) {
+      setError(e.message || 'Failed to clone voice from sample');
+    } finally {
+      setIsCloning(false);
+    }
+  };
+
+  const generateNarratedVideo = async () => {
+    if (!clips.length || !canvasRef.current || !scenes.length) return;
+    stopPreview();
+    setIsNarrating(true);
+    setIsGenerating(true);
+    setProgress(0);
+    setResultUrl(null);
+    setResultBlob(null);
+    setError(null);
+    chunksRef.current = [];
+
+    if (!voiceProfileId) {
+      setError('Please clone a voice first');
+      setIsNarrating(false);
+      setIsGenerating(false);
+      return;
+    }
+
+    try {
+      const images = await loadImages();
+
+      const segments = scenes.map((scene) => ({
+        text: subtitleLang === 'hindi' ? scene.hindi || scene.text : scene.text,
+      }));
+      const language = subtitleLang === 'hindi' ? 'hi' : 'en';
+
+      const narrateRes = await voiceApi.narrate({ voiceProfileId, segments, language });
+      const audioFiles = [...narrateRes.audioFiles].sort((a, b) => a.segmentIndex - b.segmentIndex);
+
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const audioContext = new AudioContextClass();
+      audioContextRef.current = audioContext;
+
+      const audioBuffers = await Promise.all(
+        audioFiles.map(async (af) => {
+          const res = await apiClient.get(af.url, { responseType: 'arraybuffer' });
+          return audioContext.decodeAudioData(res.data as ArrayBuffer);
+        })
+      );
+
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas not supported');
+
+      const destination = audioContext.createMediaStreamDestination();
+      const videoStream = canvas.captureStream(FPS);
+      const combinedStream = new MediaStream([...videoStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
+
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : MediaRecorder.isTypeSupported('video/webm')
+        ? 'video/webm'
+        : '';
+      if (!mimeType) throw new Error('Browser does not support webm recording');
+
+      const recorder = new MediaRecorder(combinedStream, { mimeType });
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        setResultBlob(blob);
+        setResultUrl(URL.createObjectURL(blob));
+        setIsNarrating(false);
+        setIsGenerating(false);
+        setProgress(1);
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+          audioContextRef.current = null;
+        }
+      };
+      recorder.onerror = () => {
+        setError('Recording failed');
+        setIsNarrating(false);
+        setIsGenerating(false);
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+          audioContextRef.current = null;
+        }
+      };
+
+      await audioContext.resume();
+      const startTime = audioContext.currentTime + 0.1;
+      let sceneStart = startTime;
+      audioBuffers.forEach((buffer, i) => {
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(destination);
+        const clipDuration = clips[i]?.duration ?? 1;
+        if (buffer.duration > 0) {
+          source.start(sceneStart, 0, Math.min(clipDuration, buffer.duration));
+        }
+        sceneStart += clipDuration;
+      });
+
+      recorder.start();
+
+      const totalFrames = Math.ceil(totalDuration * FPS);
+      let frame = 0;
+      intervalRef.current = setInterval(() => {
+        if (frame >= totalFrames) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          recorder.stop();
+          return;
+        }
+        const time = frame / FPS;
+        drawFrame(ctx, time, images);
+        setProgress(time / totalDuration);
+        frame++;
+      }, 1000 / FPS);
+    } catch (error: any) {
+      console.error(error);
+      setError(error.message || 'Narrated video generation failed');
+      setIsNarrating(false);
+      setIsGenerating(false);
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+    }
   };
 
   const extractScenes = async () => {
