@@ -12,7 +12,6 @@ import { swaggerUi, specs } from './config/swagger';
 import AuthRoutes from './routes/auth';
 import SukuyamiRoutes from './routes/sukuyami';
 import { initializeRabbitMQSystem } from './config/rabbitmq';
-import SukuyamiCronService from './services/sukuyamiCronService';
 
 dotenv.config();
 
@@ -85,18 +84,7 @@ const startServer = async () => {
    await initializeRabbitMQSystem();
     logger.info('RabbitMQ connected successfully');
 
-    // Initialize SUKUYAMI cron service
-    const sukuyamiCronService = new SukuyamiCronService(
-      process.env.SUKUYAMI_GRAPHQL_URL,
-      // process.env.DEFAULT_USER_ID ? new mongoose.Types.ObjectId(process.env.DEFAULT_USER_ID) : undefined
-    );
-    
-    if (process.env.ENABLE_CRON_JOBS === 'true') {
-      sukuyamiCronService.startAllJobs();
-      logger.info('SUKUYAMI cron jobs started');
-    } else {
-      logger.info('SUKUYAMI cron jobs disabled (set ENABLE_CRON_JOBS=true to enable)');
-    }
+  
 
     app.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);

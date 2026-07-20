@@ -6,7 +6,7 @@ import {
   InputLabel, Table, TableBody, TableCell, TableHead, TableRow,
   Paper, IconButton, Tooltip,
 } from '@mui/material';
-import { ArrowBack, PlayArrow, Description, VideoLibrary, Sync } from '@mui/icons-material';
+import { ArrowBack, Description, Sync, DoneAll, CheckCircle } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 import { useRouter, useParams } from 'next/navigation';
@@ -32,19 +32,17 @@ export default function ChaptersPage() {
     onError: (e: any) => toast.error(`Failed: ${e.message}`),
   });
 
-  const videoMutation = useMutation({
-    mutationFn: (chapterId: string) => sukuyamiApi.generateVideo(chapterId),
-    onSuccess: () => { toast.success('Video generation started'); queryClient.invalidateQueries({ queryKey: ['chapters'] }); },
+  const markReadMutation = useMutation({
+    mutationFn: (chapterId: string) => sukuyamiApi.markChapterAsRead(chapterId),
+    onSuccess: () => { toast.success('Marked as read'); queryClient.invalidateQueries({ queryKey: ['chapters'] }); },
     onError: (e: any) => toast.error(`Failed: ${e.message}`),
   });
 
-  const getStatusColor = (s: string) => {
-    if (s === 'completed') return 'success';
-    if (s === 'processing') return 'warning';
-    if (s === 'failed') return 'error';
-    if (s === 'pending') return 'default';
-    return 'info';
-  };
+  const markAllReadMutation = useMutation({
+    mutationFn: () => sukuyamiApi.markAllChaptersAsRead(webtoonId),
+    onSuccess: () => { toast.success('All chapters marked as read'); queryClient.invalidateQueries({ queryKey: ['chapters'] }); },
+    onError: (e: any) => toast.error(`Failed: ${e.message}`),
+  });
 
   if (isLoading) return <Box sx={{ width: '100%', mt: 2 }}><LinearProgress /></Box>;
 
@@ -63,17 +61,17 @@ export default function ChaptersPage() {
                 <InputLabel>Status</InputLabel>
                 <Select value={status} label="Status" onChange={(e) => setStatus(e.target.value)}>
                   <MenuItem value="all">All</MenuItem>
-                  <MenuItem value="pending">Pending</MenuItem>
-                  <MenuItem value="syncing">Syncing</MenuItem>
-                  <MenuItem value="processing">Processing</MenuItem>
-                  <MenuItem value="completed">Completed</MenuItem>
-                  <MenuItem value="failed">Failed</MenuItem>
+                  <MenuItem value="read">Read</MenuItem>
+                  <MenuItem value="unread">Unread</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={12} sm={4}>
               <Button variant="outlined" startIcon={<Sync />} onClick={() => queryClient.invalidateQueries({ queryKey: ['chapters'] })}>
                 Refresh
+              </Button>
+              <Button variant="outlined" startIcon={<DoneAll />} onClick={() => markAllReadMutation.mutate()} disabled={markAllReadMutation.isPending} sx={{ ml: 2 }}>
+                Mark All Read
               </Button>
             </Grid>
           </Grid>
@@ -86,10 +84,9 @@ export default function ChaptersPage() {
             <TableRow>
               <TableCell>#</TableCell>
               <TableCell>Title</TableCell>
-              <TableCell>Status</TableCell>
+              <TableCell>Read</TableCell>
               <TableCell>Panels</TableCell>
               <TableCell>Script</TableCell>
-              <TableCell>Video</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -98,33 +95,25 @@ export default function ChaptersPage() {
               <TableRow key={chapter._id} hover sx={{ cursor: 'pointer' }} onClick={() => router.push(`/chapters/${chapter._id}`)}>
                 <TableCell>{chapter.chapterNumber}</TableCell>
                 <TableCell>{chapter.title || `Chapter ${chapter.chapterNumber}`}</TableCell>
-                <TableCell><Chip label={chapter.status} color={getStatusColor(chapter.status) as any} size="small" /></TableCell>
+                <TableCell><Chip label={chapter.isRead ? 'Read' : 'Unread'} color={chapter.isRead ? 'success' : 'default'} size="small" /></TableCell>
                 <TableCell>{chapter.panelCount || '-'}</TableCell>
                 <TableCell>
                   <Chip label={chapter.scriptGenerated ? 'Done' : 'No'} color={chapter.scriptGenerated ? 'success' : 'default'} size="small" />
                 </TableCell>
                 <TableCell>
-                  <Chip label={chapter.videoGenerated ? 'Done' : 'No'} color={chapter.videoGenerated ? 'success' : 'default'} size="small" />
-                </TableCell>
-                <TableCell>
                   <Box display="flex" gap={0.5} onClick={(e) => e.stopPropagation()}>
+                    {!chapter.isRead && (
+                      <Tooltip title="Mark as Read">
+                        <IconButton size="small" color="success" onClick={() => markReadMutation.mutate(chapter._id)} disabled={markReadMutation.isPending}>
+                          <CheckCircle fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     <Tooltip title="Generate Script">
                       <IconButton size="small" color="primary" onClick={() => scriptMutation.mutate(chapter._id)} disabled={scriptMutation.isPending}>
                         <Description fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Generate Video">
-                      <IconButton size="small" color="secondary" onClick={() => videoMutation.mutate(chapter._id)} disabled={videoMutation.isPending}>
-                        <VideoLibrary fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    {chapter.videoUrl && (
-                      <Tooltip title="Play Video">
-                        <IconButton size="small" color="success" onClick={() => window.open(chapter.videoUrl, '_blank')}>
-                          <PlayArrow fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
                   </Box>
                 </TableCell>
               </TableRow>

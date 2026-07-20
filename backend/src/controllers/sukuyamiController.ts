@@ -2,16 +2,57 @@ import { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import Webtoon from '../models/Webtoon';
 import Chapter from '../models/Chapter';
-import SukuyamiSyncService, { SyncOptions } from '../services/sukuyamiSyncService';
 import ScriptGenerationService from '../services/scriptGenerationService';
-import VideoGenerationService from '../services/videoGenerationService';
-import SukuyamiCronService from '../services/sukuyamiCronService';
 import SukuyamiGraphQLService from '../services/sukuyamiGraphQLService';
 import logger from '../config/logger';
-  const syncService = new SukuyamiSyncService();
+
+function mapSukuyamiStatus(status?: string): string {
+  if (!status) return 'unknown';
+  const lower = status.toLowerCase();
+  if (lower === 'on_hiatus') return 'hiatus';
+  if (lower === 'publishing_finished') return 'completed';
+  return lower;
+}
+
+function mapSukuyamiMangaToWebtoon(manga: any): any {
+  return {
+    _id: String(manga.id),
+    title: manga.title || '',
+    description: manga.description || '',
+    author: manga.author || '',
+    coverImage: manga.thumbnailUrl || '',
+    status: mapSukuyamiStatus(manga.status),
+    totalChapters: manga.chapters?.totalCount ?? 0,
+    genres: manga.genre || [],
+    sukuyamiData: {
+      sukuyamiId: String(manga.id),
+      rating: 0,
+      popularity: 0,
+    },
+    createdAt: manga.inLibraryAt || '',
+    updatedAt: manga.lastFetchedAt || '',
+  };
+}
+
+function mapSukuyamiChapterToChapter(chapter: any): any {
+  return {
+    _id: String(chapter.id),
+    webtoonId: String(chapter.mangaId),
+    chapterNumber: chapter.chapterNumber,
+    title: chapter.name || `Chapter ${chapter.chapterNumber}`,
+    status: chapter.isRead ? 'completed' : 'pending',
+    isRead: !!chapter.isRead,
+    isBookmarked: !!chapter.isBookmarked,
+    panelCount: chapter.pageCount ?? 0,
+    scriptGenerated: false,
+    videoGenerated: false,
+    videoUrl: undefined,
+    createdAt: chapter.fetchedAt || '',
+    updatedAt: chapter.lastReadAt || '',
+  };
+}
+
   const scriptService = new ScriptGenerationService();
-  const videoService = new VideoGenerationService();
-  const cronService = new SukuyamiCronService();
   const graphqlService = new SukuyamiGraphQLService();
 class SukuyamiController {
 
@@ -19,7 +60,7 @@ class SukuyamiController {
   
   }
 
-  // Get all webtoons from database with pagination and filtering
+  // Get all webtoons from SUKUYAMI library with pagination and filtering
   async getWebtoons(req: Request, res: Response, next: NextFunction) {
     try {
       const page = parseInt(req.query.page as string) || 1;
@@ -27,42 +68,20 @@ class SukuyamiController {
       const status = req.query.status as string;
       const genre = req.query.genre as string;
       const search = req.query.search as string;
-      const sortBy = req.query.sortBy as string || 'createdAt';
+      const sortBy = req.query.sortBy as string || 'updatedAt';
       const sortOrder = req.query.sortOrder as string || 'desc';
 
-      const skip = (page - 1) * limit;
+      const result = await graphqlService.getLibraryMangas(
+        page,
+        limit,
+        status,
+        genre,
+        search,
+        sortBy,
+        sortOrder
+      );
 
-      // Build filter
-      const filter: Record<string, any> = { };
-      
-      if (status && status !== 'all') {
-        filter.status = status;
-      }
-      
-      if (genre && genre !== 'all') {
-        filter.genres = { $in: [genre] };
-      }
-      
-      if (search) {
-        filter.$or = [
-          { title: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } },
-          { author: { $regex: search, $options: 'i' } }
-        ];
-      }
-
-      // Build sort
-      const sort: Record<string, 1 | -1> = {};
-      sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-     console.log('Filter:', filter);
-     console.log('Sort:', sort);
-      const webtoons = await Webtoon.find(filter)
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .lean();
-
-      const total = await Webtoon.countDocuments(filter);
+      const webtoons = result.mangas.map(mapSukuyamiMangaToWebtoon);
 
       res.json({
         success: true,
@@ -71,9 +90,9 @@ class SukuyamiController {
           pagination: {
             page,
             limit,
-            total,
-            pages: Math.ceil(total / limit),
-            hasNext: page * limit < total,
+            total: result.totalCount,
+            pages: Math.ceil(result.totalCount / limit),
+            hasNext: result.hasNextPage,
             hasPrev: page > 1
           }
         }
@@ -90,50 +109,28 @@ class SukuyamiController {
     try {
       const { webtoonId } = req.params;
 
-      const webtoon = await Webtoon.findOne({ _id: webtoonId })
+      const manga = await graphqlService.getManga(webtoonId);
 
-      if (!webtoon) {
+      if (!manga) {
         return res.status(404).json({
           success: false,
           message: 'Webtoon not found'
         });
       }
 
-      // Get chapter count and latest chapter info
-      const chapterStats = await Chapter.aggregate([
-        { $match: { webtoonId: webtoon._id } },
-        {
-          $group: {
-            _id: null,
-            totalChapters: { $sum: 1 },
-            completedChapters: {
-              $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
-            },
-            chaptersWithVideo: {
-              $sum: { $cond: [{ $ne: ['$videoUrl', null] }, 1, 0] }
-            },
-            latestChapter: { $max: '$chapterNumber' }
-          }
-        }
-      ]);
-
-      const stats = chapterStats[0] || {
-        totalChapters: 0,
-        completedChapters: 0,
-        chaptersWithVideo: 0,
-        latestChapter: 0
-      };
+      const totalChapters = manga.chapters?.totalCount ?? 0;
+      const unreadCount = manga.unreadCount ?? 0;
 
       res.json({
         success: true,
         data: {
-          webtoon,
+          webtoon: mapSukuyamiMangaToWebtoon(manga),
           stats: {
-            totalChapters: stats.totalChapters,
-            completedChapters: stats.completedChapters,
-            chaptersWithVideo: stats.chaptersWithVideo,
-            latestChapter: stats.latestChapter,
-            completionRate: stats.totalChapters > 0 ? (stats.completedChapters / stats.totalChapters) * 100 : 0
+            totalChapters,
+            completedChapters: Math.max(0, totalChapters - unreadCount),
+            chaptersWithVideo: 0,
+            latestChapter: manga.highestNumberedChapter?.chapterNumber ?? 0,
+            completionRate: totalChapters > 0 ? ((totalChapters - unreadCount) / totalChapters) * 100 : 0
           }
         }
       });
@@ -152,30 +149,14 @@ class SukuyamiController {
       const limit = parseInt(req.query.limit as string) || 50;
       const status = req.query.status as string;
 
-      // Verify webtoon belongs to user
-      const webtoon = await Webtoon.findOne({ _id: webtoonId });
-      if (!webtoon) {
-        return res.status(404).json({
-          success: false,
-          message: 'Webtoon not found'
-        });
-      }
+      const result = await graphqlService.getChaptersWithTotal(
+        webtoonId,
+        page,
+        limit,
+        status
+      );
 
-      const skip = (page - 1) * limit;
-      const filter: any = { webtoonId };
-      
-      if (status && status !== 'all') {
-        filter.status = status;
-      }
-
-      const chapters = await Chapter.find(filter)
-        .sort({ chapterNumber: -1 })
-        .skip(skip)
-        .limit(limit)
-        .select('-panels') // Exclude panels by default for performance
-        .lean();
-
-      const total = await Chapter.countDocuments(filter);
+      const chapters = result.chapters.map(mapSukuyamiChapterToChapter);
 
       res.json({
         success: true,
@@ -184,9 +165,9 @@ class SukuyamiController {
           pagination: {
             page,
             limit,
-            total,
-            pages: Math.ceil(total / limit),
-            hasNext: page * limit < total,
+            total: result.totalCount,
+            pages: Math.ceil(result.totalCount / limit),
+            hasNext: result.hasNextPage,
             hasPrev: page > 1
           }
         }
@@ -203,9 +184,7 @@ class SukuyamiController {
     try {
       const { chapterId } = req.params;
     
-      const chapter = await Chapter.findById(chapterId)
-      
-        .lean();
+      const chapter = await graphqlService.getChapterInfo(chapterId);
 
       if (!chapter) {
         return res.status(404).json({
@@ -214,10 +193,9 @@ class SukuyamiController {
         });
       }
 
-    
       res.json({
         success: true,
-        data: { chapter }
+        data: { chapter: mapSukuyamiChapterToChapter(chapter) }
       });
 
     } catch (error) {
@@ -226,33 +204,64 @@ class SukuyamiController {
     }
   }
 
-  // Sync webtoons from SUKUYAMI
-  async syncWebtoons(req: Request, res: Response, next: NextFunction) {
+  // Get chapter page images
+  async getChapterPages(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.user?.id;
-      const { webtoonIds, forceUpdate, syncChapters } = req.body;
+      const { chapterId } = req.params;
 
-      const options: SyncOptions = {
-        webtoonIds,
-        forceUpdate: forceUpdate || false,
-        syncChapters: syncChapters !== false
-      };
-
-      logger.info(`Starting webtoon sync for user: ${userId}`);
-
-      const result = await syncService.syncAllWebtoons(options);
+      const pages = await graphqlService.getChapterPages(chapterId);
 
       res.json({
         success: true,
-        message: 'Webtoon sync completed',
-        data: result
+        data: { pages, panelCount: pages.length }
       });
 
     } catch (error) {
-      logger.error('Sync webtoons failed:', error);
+      logger.error('Get chapter pages failed:', error);
       return next(error);
     }
   }
+
+  // Mark a chapter as read
+  async markChapterAsRead(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { chapterId } = req.params;
+
+      const chapter = await graphqlService.markChapterAsRead(chapterId);
+
+      res.json({
+        success: true,
+        message: 'Chapter marked as read',
+        data: { chapter: mapSukuyamiChapterToChapter(chapter) }
+      });
+
+    } catch (error) {
+      logger.error('Mark chapter as read failed:', error);
+      return next(error);
+    }
+  }
+
+  // Mark all chapters of a manga as read
+  async markAllChaptersAsRead(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { webtoonId } = req.params;
+
+      const chapters = await graphqlService.markAllChaptersAsRead(webtoonId);
+
+      res.json({
+        success: true,
+        message: 'All chapters marked as read',
+        data: {
+          chapters: chapters.map(mapSukuyamiChapterToChapter)
+        }
+      });
+
+    } catch (error) {
+      logger.error('Mark all chapters as read failed:', error);
+      return next(error);
+    }
+  }
+
 
   // Generate script for a chapter
   async generateScript(req: Request, res: Response, next: NextFunction) {
@@ -283,40 +292,6 @@ class SukuyamiController {
 
     } catch (error) {
       logger.error('Generate script failed:', error);
-      return next(error);
-    }
-  }
-
-  // Generate video for a chapter
-  async generateVideo(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { chapterId } = req.params;
-      const { format, quality, fps } = req.body;
-
-      // Verify chapter belongs to user
-      const chapter = await Chapter.findById(chapterId).populate('webtoonId');
-      if (!chapter) {
-        return res.status(404).json({
-          success: false,
-          message: 'Chapter not found'
-        });
-      }
-
-      
-
-      const video = await videoService.generateVideoForChapter(
-        new mongoose.Types.ObjectId(chapterId),
-        { format, quality, fps }
-      );
-
-      res.json({
-        success: true,
-        message: 'Video generated successfully',
-        data: { video }
-      });
-
-    } catch (error) {
-      logger.error('Generate video failed:', error);
       return next(error);
     }
   }
@@ -353,93 +328,7 @@ class SukuyamiController {
     }
   }
 
-  // Add webtoon to user's collection
-  async addWebtoon(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { sukuyamiId } = req.body;
-
-      if (!sukuyamiId) {
-        return res.status(400).json({
-          success: false,
-          message: 'SUKUYAMI ID is required'
-        });
-      }
-
-      // Check if webtoon already exists for user
-      const existing = await Webtoon.findOne({
-       
-        sukuyamiId
-      });
-
-      if (existing) {
-        return res.status(409).json({
-          success: false,
-          message: 'Webtoon already in your collection'
-        });
-      }
-
-      // Get webtoon info from SUKUYAMI
-      const webtoonInfo = await graphqlService.getManga(sukuyamiId);
-      if (!webtoonInfo) {
-        return res.status(404).json({
-          success: false,
-          message: 'Webtoon not found in SUKUYAMI'
-        });
-      }
-    console.log("webtoonInfo",webtoonInfo)
-      // Create webtoon in database
-      const webtoon = await syncService.createWebtoon(
-        webtoonInfo,
-      );
-
-      // Sync chapters
-      await syncService.syncChapters(sukuyamiId,);
-
-      res.status(201).json({
-        success: true,
-        message: 'Webtoon added successfully',
-        data: { webtoon }
-      });
-
-    } catch (error) {
-      logger.error('Add webtoon failed:', error);
-      return next(error);
-    }
-  }
-
-  // Get cron job status
-  async getCronStatus(_req: Request, res: Response, next: NextFunction) {
-    try {
-      const status = cronService.getStatus();
-
-      res.json({
-        success: true,
-        data: { status }
-      });
-
-    } catch (error) {
-      logger.error('Get cron status failed:', error);
-      return next(error);
-    }
-  }
-
-  // Run cron job manually
-  async runCronJob(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { jobName } = req.params;
-
-      await cronService.runJobManually(jobName as any);
-
-      res.json({
-        success: true,
-        message: `Job ${jobName} executed successfully`
-      });
-
-    } catch (error) {
-      logger.error(`Run cron job ${req.params.jobName} failed:`, error);
-      return next(error);
-    }
-  }
+ 
 
   // Get dashboard stats
   async getDashboardStats(_req: Request, res: Response, next: NextFunction) {
@@ -489,31 +378,6 @@ class SukuyamiController {
 
     } catch (error) {
       logger.error('Get dashboard stats failed:', error);
-      return next(error);
-    }
-  }
-
-  // Health check for SUKUYAMI services
-  async healthCheck(_req: Request, res: Response, next: NextFunction) {
-    try {
-      const [syncHealth, graphqlHealth] = await Promise.all([
-        syncService.healthCheck(),
-        graphqlService.healthCheck()
-      ]);
-
-      const health = {
-        syncService: syncHealth,
-        graphqlService: graphqlHealth,
-        overall: syncHealth && graphqlHealth
-      };
-
-      res.json({
-        success: true,
-        data: { health }
-      });
-
-    } catch (error) {
-      logger.error('Health check failed:', error);
       return next(error);
     }
   }

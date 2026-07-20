@@ -7,9 +7,9 @@ dotenv.config()
 
 import { GET_SOURCE_MANGAS_FETCH } from '@/graphql/source/SourceMutation';
 import { GET_SOURCES_LIST } from '@/graphql/source/SourceQuery';
-import { GET_MANGA_SCREEN, GET_MANGAS_BASE } from '@/graphql/manga/MangaQuery';
-import { GET_CHAPTERS_MANGA } from '@/graphql/chapter/ChapterQuery';
-import { GET_CHAPTER_PAGES_FETCH } from '@/graphql/chapter/ChapterMutation';
+import { GET_MANGA_SCREEN, GET_MANGAS_BASE, GET_MANGAS_LIBRARY } from '@/graphql/manga/MangaQuery';
+import { GET_CHAPTERS_MANGA, GET_CHAPTERS_READER } from '@/graphql/chapter/ChapterQuery';
+import { GET_CHAPTER_PAGES_FETCH, UPDATE_CHAPTER, UPDATE_CHAPTERS } from '@/graphql/chapter/ChapterMutation';
 import { GET_ABOUT } from '@/graphql/server/ServerInfoQuery';
 export interface MangaInfo {
   id: string;
@@ -69,9 +69,11 @@ export interface GetChapterPagesResponse {
 export class SukuyamiGraphQLService {
   private client: AxiosInstance;
   private graphqlUrl: string;
+  private graphqlDomainHost: string;
 
   constructor(graphqlUrl?: string) {
     this.graphqlUrl = graphqlUrl || process.env.SUKUYAMI_GRAPHQL_URL || 'http://localhost:4567/api/graphql';
+    this.graphqlDomainHost = this.graphqlUrl.replace('/api/graphql', '');
     
     this.client = axios.create({
       baseURL: this.graphqlUrl,
@@ -210,6 +212,9 @@ export class SukuyamiGraphQLService {
       }>(GET_CHAPTER_PAGES_FETCH, { input: { chapterId: parseInt(chapterId, 10) } });
 
       logger.info(`Retrieved ${result.fetchChapterPages.pages.length} pages for chapter: ${chapterId}`);
+      if (result?.fetchChapterPages?.pages  && Array.isArray(result.fetchChapterPages.pages)) {
+        result.fetchChapterPages.pages = result.fetchChapterPages.pages.map((page: string) => `${this.graphqlDomainHost}${page}?sourceId=${process.env.SUKUYAMI_SOURCE_ID}`);
+      }
       return result.fetchChapterPages.pages;
     } catch (error: any) {
       logger.error('Failed to get chapter pages:', error);
@@ -238,6 +243,210 @@ export class SukuyamiGraphQLService {
     } catch (error: any) {
       logger.error('Failed to get manga by URL:', error);
       throw new Error(`Failed to get manga by URL: ${error.message}`);
+    }
+  }
+
+  async getLibraryMangas(
+    page: number = 1,
+    limit: number = 20,
+    status?: string,
+    genre?: string,
+    search?: string,
+    sortBy?: string,
+    sortOrder?: string
+  ): Promise<{ mangas: any[]; totalCount: number; hasNextPage: boolean }> {
+    try {
+      const filter: Record<string, any> = {};
+
+      if (status && status !== 'all') {
+        const statusMap: Record<string, string> = {
+          ongoing: 'ONGOING',
+          completed: 'COMPLETED',
+          hiatus: 'ON_HIATUS'
+        };
+        filter.status = { equalTo: statusMap[status.toLowerCase()] ?? status.toUpperCase() };
+      }
+
+      if (genre && genre !== 'all') {
+        filter.genre = { includesInsensitive: genre };
+      }
+
+      if (search) {
+        filter.or = [
+          { title: { includesInsensitive: search } },
+          { author: { includesInsensitive: search } },
+          { description: { includesInsensitive: search } }
+        ];
+      }
+
+      let orderBy: string;
+      switch (sortBy) {
+        case 'title':
+          orderBy = 'TITLE';
+          break;
+        case 'createdAt':
+          orderBy = 'IN_LIBRARY_AT';
+          break;
+        case 'updatedAt':
+        default:
+          orderBy = 'LAST_FETCHED_AT';
+          break;
+      }
+
+      const order = [{
+        by: orderBy,
+        byType: sortOrder === 'asc' ? 'ASC' : 'DESC'
+      }];
+
+      const result = await this.executeQuery<{
+        mangas: {
+          nodes: any[];
+          totalCount: number;
+          pageInfo: { hasNextPage: boolean };
+        };
+      }>(GET_MANGAS_LIBRARY, {
+        condition: { inLibrary: true },
+        filter,
+        first: limit,
+        offset: (page - 1) * limit,
+        order
+      });
+
+      return {
+        mangas: result.mangas.nodes,
+        totalCount: result.mangas.totalCount,
+        hasNextPage: result.mangas.pageInfo.hasNextPage
+      };
+    } catch (error: any) {
+      logger.error('Failed to get library mangas:', error);
+      throw new Error(`Failed to get library mangas: ${error.message}`);
+    }
+  }
+
+  async getChaptersWithTotal(
+    mangaId: string,
+    page: number = 1,
+    limit: number = 50,
+    status?: string
+  ): Promise<{ chapters: any[]; totalCount: number; hasNextPage: boolean }> {
+    try {
+      const condition: Record<string, any> = { mangaId: parseInt(mangaId, 10) };
+
+      if (status === 'completed' || status === 'read') {
+        condition.isRead = true;
+      } else if (status === 'pending' || status === 'unread') {
+        condition.isRead = false;
+      }
+
+      const result = await this.executeQuery<{
+        chapters: {
+          nodes: any[];
+          totalCount: number;
+          pageInfo: { hasNextPage: boolean };
+        };
+      }>(GET_CHAPTERS_MANGA, {
+        condition,
+        first: limit,
+        offset: (page - 1) * limit
+      });
+
+      return {
+        chapters: result.chapters.nodes,
+        totalCount: result.chapters.totalCount,
+        hasNextPage: result.chapters.pageInfo.hasNextPage
+      };
+    } catch (error: any) {
+      logger.error('Failed to get chapters with total:', error);
+      throw new Error(`Failed to get chapters: ${error.message}`);
+    }
+  }
+
+  async getChapterInfo(chapterId: string): Promise<any | null> {
+    try {
+      const result = await this.executeQuery<{
+        chapters: {
+          nodes: any[];
+          totalCount: number;
+        };
+      }>(GET_CHAPTERS_READER, {
+        condition: { id: parseInt(chapterId, 10) },
+        first: 1
+      });
+
+      const chapter = result.chapters.nodes[0];
+      if (chapter) {
+        logger.info(`Retrieved chapter info: ${chapter.id}`);
+        return chapter;
+      }
+      return null;
+    } catch (error: any) {
+      logger.error('Failed to get chapter info:', error);
+      throw new Error(`Failed to get chapter info: ${error.message}`);
+    }
+  }
+
+  async markChapterAsRead(chapterId: string): Promise<any> {
+    try {
+      const chapter = await this.getChapterInfo(chapterId);
+      const mangaId = chapter?.mangaId ?? 0;
+
+      const result = await this.executeQuery<{
+        updateChapter: { chapter: any } | null;
+      }>(UPDATE_CHAPTER, {
+        input: {
+          id: parseInt(chapterId, 10),
+          patch: { isRead: true }
+        },
+        getBookmarked: false,
+        getRead: true,
+        getLastPageRead: false,
+        chapterIdToDelete: -1,
+        deleteChapter: false,
+        mangaId: parseInt(String(mangaId), 10) || 0,
+        trackProgress: false
+      });
+
+      logger.info(`Marked chapter ${chapterId} as read`);
+      return result.updateChapter?.chapter ?? { id: parseInt(chapterId, 10), isRead: true };
+    } catch (error: any) {
+      logger.error('Failed to mark chapter as read:', error);
+      throw new Error(`Failed to mark chapter as read: ${error.message}`);
+    }
+  }
+
+  async markAllChaptersAsRead(mangaId: string): Promise<any[]> {
+    try {
+      const allChapters = await this.getChaptersWithTotal(mangaId, 1, 10000);
+      const ids = allChapters.chapters
+        .filter((ch: any) => ch.id !== undefined && ch.id !== null)
+        .map((ch: any) => parseInt(String(ch.id), 10))
+        .filter((id: number) => !isNaN(id));
+
+      if (ids.length === 0) {
+        return [];
+      }
+
+      const result = await this.executeQuery<{
+        updateChapters: { chapters: any[] } | null;
+      }>(UPDATE_CHAPTERS, {
+        input: {
+          ids,
+          patch: { isRead: true }
+        },
+        getBookmarked: false,
+        getRead: true,
+        getLastPageRead: false,
+        chapterIdsToDelete: [],
+        deleteChapters: false,
+        mangaId: parseInt(mangaId, 10),
+        trackProgress: false
+      });
+
+      logger.info(`Marked ${ids.length} chapters as read for manga ${mangaId}`);
+      return result.updateChapters?.chapters ?? [];
+    } catch (error: any) {
+      logger.error('Failed to mark all chapters as read:', error);
+      throw new Error(`Failed to mark all chapters as read: ${error.message}`);
     }
   }
 

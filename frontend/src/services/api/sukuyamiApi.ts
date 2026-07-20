@@ -24,6 +24,8 @@ export interface Chapter {
   chapterNumber: number;
   title: string;
   status: 'pending' | 'syncing' | 'processing' | 'completed' | 'failed';
+  isRead: boolean;
+  isBookmarked: boolean;
   panelCount: number;
   scriptGenerated: boolean;
   videoGenerated: boolean;
@@ -73,11 +75,6 @@ export const sukuyamiApi = {
     return response.data?.data;
   },
 
-  addWebtoon: async (sukuyamiId: string) => {
-    const response = await apiClient.post('/sukuyami/webtoons', { sukuyamiId });
-    return response.data?.data;
-  },
-
   syncWebtoons: async (options: { webtoonIds?: string[]; forceUpdate?: boolean; syncChapters?: boolean }) => {
     const response = await apiClient.post('/sukuyami/sync', options);
     return response.data;
@@ -101,21 +98,27 @@ export const sukuyamiApi = {
     return response.data?.data;
   },
 
+  getChapterPages: async (chapterId: string) => {
+    const response = await apiClient.get(`/sukuyami/chapters/${chapterId}/pages`);
+    return response.data?.data;
+  },
+
+  markChapterAsRead: async (chapterId: string) => {
+    const response = await apiClient.post(`/sukuyami/chapters/${chapterId}/read`);
+    return response.data?.data?.chapter ?? response.data?.data;
+  },
+
+  markAllChaptersAsRead: async (webtoonId: string) => {
+    const response = await apiClient.post(`/sukuyami/webtoons/${webtoonId}/read-all`);
+    return response.data?.data?.chapters ?? [];
+  },
+
   // Script generation
   generateScript: async (
     chapterId: string,
     options?: { style?: string; durationPerPanel?: number; model?: string }
   ) => {
     const response = await apiClient.post(`/sukuyami/chapters/${chapterId}/script`, options);
-    return response.data?.data ?? response.data;
-  },
-
-  // Video generation
-  generateVideo: async (
-    chapterId: string,
-    options?: { format?: string; quality?: string; fps?: number }
-  ) => {
-    const response = await apiClient.post(`/sukuyami/chapters/${chapterId}/video`, options);
     return response.data?.data ?? response.data;
   },
 

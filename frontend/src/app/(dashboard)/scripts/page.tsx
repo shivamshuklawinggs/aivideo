@@ -5,7 +5,7 @@ import {
   LinearProgress, Table, TableBody, TableCell, TableHead, TableRow,
   Paper, IconButton, Tooltip, FormControl, InputLabel, Select, MenuItem,
 } from '@mui/material';
-import { Description, PlayArrow, Refresh, VideoLibrary } from '@mui/icons-material';
+import { Description, Refresh, Book } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 import { useRouter } from 'next/navigation';
@@ -37,16 +37,8 @@ export default function ScriptsPage() {
     onError: (e: any) => toast.error(`Failed: ${e.message}`),
   });
 
-  const videoMutation = useMutation({
-    mutationFn: (chapterId: string) => sukuyamiApi.generateVideo(chapterId),
-    onSuccess: () => { toast.success('Video generation started!'); queryClient.invalidateQueries({ queryKey: ['allChapters'] }); },
-    onError: (e: any) => toast.error(`Failed: ${e.message}`),
-  });
-
   const chapters = chaptersData?.data || [];
   const scriptsGenerated = chapters.filter((c: any) => c.scriptGenerated).length;
-  const videosGenerated = chapters.filter((c: any) => c.videoGenerated).length;
-
   return (
     <Box sx={{ flexGrow: 1 }}>
       <Typography variant="h4" gutterBottom>Scripts & Videos</Typography>
@@ -54,8 +46,7 @@ export default function ScriptsPage() {
       <Grid container spacing={3} sx={{ mb: 3 }}>
         {[
           { label: 'Scripts Generated', value: scriptsGenerated, color: 'primary.main', icon: <Description /> },
-          { label: 'Videos Generated', value: videosGenerated, color: 'success.main', icon: <VideoLibrary /> },
-          { label: 'Total Chapters', value: chapters.length, color: 'info.main', icon: <PlayArrow /> },
+          { label: 'Total Chapters', value: chapters.length, color: 'info.main', icon: <Book /> },
         ].map((stat) => (
           <Grid item xs={12} sm={4} key={stat.label}>
             <Card>
@@ -99,7 +90,6 @@ export default function ScriptsPage() {
                 <TableCell>Title</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Script</TableCell>
-                <TableCell>Video</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -110,17 +100,11 @@ export default function ScriptsPage() {
                   <TableCell>{chapter.title || `Chapter ${chapter.chapterNumber}`}</TableCell>
                   <TableCell><Chip label={chapter.status} size="small" /></TableCell>
                   <TableCell><Chip label={chapter.scriptGenerated ? 'Done' : 'Pending'} color={chapter.scriptGenerated ? 'success' : 'default'} size="small" /></TableCell>
-                  <TableCell><Chip label={chapter.videoGenerated ? 'Done' : 'Pending'} color={chapter.videoGenerated ? 'success' : 'default'} size="small" /></TableCell>
                   <TableCell>
                     <Box display="flex" gap={0.5} onClick={(e) => e.stopPropagation()}>
                       <Tooltip title="Generate Script">
                         <IconButton size="small" color="primary" onClick={() => scriptMutation.mutate({ chapterId: chapter._id, style: 'narrative' })} disabled={scriptMutation.isPending}>
                           <Description fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Generate Video">
-                        <IconButton size="small" color="secondary" onClick={() => videoMutation.mutate(chapter._id)} disabled={videoMutation.isPending || !chapter.scriptGenerated}>
-                          <VideoLibrary fontSize="small" />
                         </IconButton>
                       </Tooltip>
                     </Box>

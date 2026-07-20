@@ -3,11 +3,10 @@ import React, { useState } from 'react';
 import {
   Box, Grid, Card, CardContent, CardMedia, Typography, TextField,
   Button, Select, MenuItem, FormControl, InputLabel, Pagination,
-  Chip, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
-  List, ListItem, ListItemText, ListItemAvatar, Avatar, LinearProgress,
+  Chip, IconButton, LinearProgress,
   Tooltip, Paper, InputAdornment,
 } from '@mui/material';
-import { Search, Add, Sync, Visibility, Description, VideoLibrary, FilterList, Book } from '@mui/icons-material';
+import { Search, Sync, Visibility, Description, VideoLibrary, FilterList } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 import { useRouter } from 'next/navigation';
@@ -17,9 +16,6 @@ export default function WebtoonsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [params, setParams] = useState<WebtoonSearchParams>({ page: 1, limit: 20, status: 'all', sortBy: 'updatedAt', sortOrder: 'desc' });
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
 
   const { data: webtoonsData, isLoading } = useQuery({
     queryKey: ['webtoons', params],
@@ -31,18 +27,6 @@ export default function WebtoonsPage() {
     mutationFn: () => sukuyamiApi.syncWebtoons({}),
     onSuccess: () => { toast.success('Synced successfully'); queryClient.invalidateQueries({ queryKey: ['webtoons'] }); },
     onError: (e: any) => toast.error(`Sync failed: ${e.message}`),
-  });
-
-  const addMutation = useMutation({
-    mutationFn: (id: string) => sukuyamiApi.addWebtoon(id),
-    onSuccess: () => { toast.success('Webtoon added'); queryClient.invalidateQueries({ queryKey: ['webtoons'] }); setDialogOpen(false); setSearchResults([]); setSearchQuery(''); },
-    onError: (e: any) => toast.error(`Failed: ${e.message}`),
-  });
-
-  const searchMutation = useMutation({
-    mutationFn: (q: string) => sukuyamiApi.searchWebtoons({ query: q, limit: 20 }),
-    onSuccess: (data) => setSearchResults(data),
-    onError: (e: any) => toast.error(`Search failed: ${e.message}`),
   });
 
   const getStatusColor = (status: string) => {
@@ -59,11 +43,8 @@ export default function WebtoonsPage() {
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4">Webtoons</Typography>
         <Box>
-          <Button variant="outlined" startIcon={<Sync />} onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending} sx={{ mr: 2 }}>
+          <Button variant="outlined" startIcon={<Sync />} onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
             Sync All
-          </Button>
-          <Button variant="contained" startIcon={<Add />} onClick={() => setDialogOpen(true)}>
-            Add Webtoon
           </Button>
         </Box>
       </Box>
@@ -155,30 +136,6 @@ export default function WebtoonsPage() {
         </Box>
       )}
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Add Webtoon from SUKUYAMI</DialogTitle>
-        <DialogContent>
-          <Box display="flex" gap={2} mb={2} mt={1}>
-            <TextField fullWidth placeholder="Search webtoons..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && searchMutation.mutate(searchQuery)}
-              InputProps={{ startAdornment: <InputAdornment position="start"><Search /></InputAdornment> }} />
-            <Button variant="contained" onClick={() => searchMutation.mutate(searchQuery)} disabled={searchMutation.isPending}>Search</Button>
-          </Box>
-          {searchMutation.isPending && <LinearProgress sx={{ mb: 2 }} />}
-          <List>
-            {searchResults.map((r: any) => (
-              <ListItem key={r.id}>
-                <ListItemAvatar><Avatar src={r.coverImage}><Book /></Avatar></ListItemAvatar>
-                <ListItemText primary={r.title} secondary={`${r.author} • ${r.totalChapters} chapters • ${r.status}`} />
-                <Button variant="outlined" onClick={() => addMutation.mutate(r.id)} disabled={addMutation.isPending}>Add</Button>
-              </ListItem>
-            ))}
-          </List>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }

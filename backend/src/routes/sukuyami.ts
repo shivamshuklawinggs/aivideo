@@ -162,39 +162,35 @@ router.get('/chapters/:chapterId', authenticate, sukuyamiController.getChapter);
 
 /**
  * @swagger
- * /api/sukuyami/sync:
- *   post:
- *     summary: Sync webtoons from SUKUYAMI
+ * /api/sukuyami/chapters/{chapterId}/pages:
+ *   get:
+ *     summary: Get chapter page images
  *     tags: [Sukuyami]
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: false
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               webtoonIds:
- *                 type: array
- *                 items:
- *                   type: string
- *                 description: Specific webtoon IDs to sync
- *               forceUpdate:
- *                 type: boolean
- *                 default: false
- *                 description: Force update even if recently synced
- *               syncChapters:
- *                 type: boolean
- *                 default: true
- *                 description: Sync chapters as well
+ *     parameters:
+ *       - in: path
+ *         name: chapterId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Chapter ID
  *     responses:
  *       200:
- *         description: Webtoon sync completed
+ *         description: Page URLs retrieved successfully
+ *       404:
+ *         description: Chapter not found
  *       401:
  *         description: Unauthorized
  */
-router.post('/sync', authenticate, sukuyamiController.syncWebtoons);
+router.get('/chapters/:chapterId/pages', authenticate, sukuyamiController.getChapterPages);
+
+// Mark a chapter as read
+router.post('/chapters/:chapterId/read', authenticate, sukuyamiController.markChapterAsRead);
+
+// Mark all chapters of a manga as read
+router.post('/webtoons/:webtoonId/read-all', authenticate, sukuyamiController.markAllChaptersAsRead);
+
 
 /**
  * @swagger
@@ -245,54 +241,6 @@ router.post('/chapters/:chapterId/script', authenticate, sukuyamiController.gene
 
 /**
  * @swagger
- * /api/sukuyami/chapters/{chapterId}/video:
- *   post:
- *     summary: Generate video for a chapter
- *     tags: [Sukuyami]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: chapterId
- *         required: true
- *         schema:
- *           type: string
- *         description: Chapter ID
- *     requestBody:
- *       required: false
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               format:
- *                 type: string
- *                 enum: [mp4, webm, avi]
- *                 default: mp4
- *                 description: Video format
- *               quality:
- *                 type: string
- *                 enum: [low, medium, high]
- *                 default: medium
- *                 description: Video quality
- *               fps:
- *                 type: number
- *                 default: 30
- *                 description: Frames per second
- *     responses:
- *       200:
- *         description: Video generated successfully
- *       404:
- *         description: Chapter not found
- *       403:
- *         description: Access denied
- *       401:
- *         description: Unauthorized
- */
-router.post('/chapters/:chapterId/video', authenticate, sukuyamiController.generateVideo);
-
-/**
- * @swagger
  * /api/sukuyami/search:
  *   get:
  *     summary: Search webtoons via SUKUYAMI API
@@ -324,77 +272,6 @@ router.get('/sources', sukuyamiController.getSources);
 
 router.get('/search', sukuyamiController.searchWebtoons);
 
-/**
- * @swagger
- * /api/sukuyami/webtoons:
- *   post:
- *     summary: Add webtoon to user's collection
- *     tags: [Sukuyami]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - sukuyamiId
- *             properties:
- *               sukuyamiId:
- *                 type: string
- *                 description: SUKUYAMI webtoon ID
- *     responses:
- *       201:
- *         description: Webtoon added successfully
- *       404:
- *         description: Webtoon not found in SUKUYAMI
- *       409:
- *         description: Webtoon already in collection
- *       401:
- *         description: Unauthorized
- */
-router.post('/webtoons', authenticate, sukuyamiController.addWebtoon);
-
-/**
- * @swagger
- * /api/sukuyami/cron/status:
- *   get:
- *     summary: Get cron job status
- *     tags: [Sukuyami]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Cron job status retrieved successfully
- *       401:
- *         description: Unauthorized
- */
-router.get('/cron/status', authenticate, sukuyamiController.getCronStatus);
-
-/**
- * @swagger
- * /api/sukuyami/cron/{jobName}/run:
- *   post:
- *     summary: Run cron job manually
- *     tags: [Sukuyami]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: jobName
- *         required: true
- *         schema:
- *           type: string
- *           enum: [syncWebtoons, checkNewChapters, generateScripts, generateVideos]
- *         description: Job name to run
- *     responses:
- *       200:
- *         description: Job executed successfully
- *       401:
- *         description: Unauthorized
- */
-router.post('/cron/:jobName/run', authenticate, sukuyamiController.runCronJob);
 
 /**
  * @swagger
@@ -411,21 +288,5 @@ router.post('/cron/:jobName/run', authenticate, sukuyamiController.runCronJob);
  *         description: Unauthorized
  */
 router.get('/dashboard', authenticate, sukuyamiController.getDashboardStats);
-
-/**
- * @swagger
- * /api/sukuyami/health:
- *   get:
- *     summary: Health check for SUKUYAMI services
- *     tags: [Sukuyami]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Health check completed
- *       401:
- *         description: Unauthorized
- */
-router.get('/health', authenticate, sukuyamiController.healthCheck);
 
 export default router;

@@ -20,31 +20,6 @@ async function testMangaFireDownloader() {
       },
       timeout: 30000
     });
-
-    console.log(`Response status: ${response.status}`);
-    console.log(`Response length: ${response.data.length}`);
-    
-    const $ = cheerio.load(response.data);
-    console.log('Cheerio loaded successfully');
-    
-    const title = 
-      $('h1.entry-title').text().trim() || 
-      $('.post-title h1').text().trim() ||
-      $('h1').first().text().trim() ||
-      $('.manga-title').text().trim() ||
-      'Unknown Title';
-    
-    console.log(`Title found: ${title}`);
-    
-    const description = 
-      $('.entry-content').text().trim() ||
-      $('.description').text().trim() ||
-      $('.summary').text().trim() ||
-      $('.manga-summary').text().trim() ||
-      '';
-    
-    console.log(`Description length: ${description.length}`);
-    
     console.log('✅ Test completed successfully!');
     
   } catch (error) {

@@ -5,8 +5,8 @@ import {
   Button, Grid, Chip, InputAdornment, LinearProgress, List,
   ListItem, ListItemAvatar, Avatar, ListItemText,
 } from '@mui/material';
-import { Search as SearchIcon, Book, Add } from '@mui/icons-material';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Search as SearchIcon, Book, Visibility } from '@mui/icons-material';
+import { useMutation } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 import { useRouter } from 'next/navigation';
 import { sukuyamiApi } from '@/services/api/sukuyamiApi';
@@ -14,7 +14,6 @@ import { sukuyamiApi } from '@/services/api/sukuyamiApi';
 export default function SearchPage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<any[]>([]);
-  const queryClient = useQueryClient();
   const router = useRouter();
 
   const searchMutation = useMutation({
@@ -23,11 +22,6 @@ export default function SearchPage() {
     onError: (e: any) => toast.error(`Search failed: ${e.message}`),
   });
 
-  const addMutation = useMutation({
-    mutationFn: (id: string) => sukuyamiApi.addWebtoon(id),
-    onSuccess: () => { toast.success('Webtoon added to your collection!'); queryClient.invalidateQueries({ queryKey: ['webtoons'] }); },
-    onError: (e: any) => toast.error(`Failed to add: ${e.message}`),
-  });
 
   const handleSearch = () => {
     if (query.trim()) searchMutation.mutate(query.trim());
@@ -76,9 +70,9 @@ export default function SearchPage() {
                     <Chip label={r.status || 'Unknown'} size="small" color={r.status === 'ongoing' ? 'success' : 'default'} />
                     <Chip label={`${r.totalChapters || 0} ch`} size="small" variant="outlined" />
                   </Box>
-                  <Button fullWidth variant="outlined" startIcon={<Add />}
-                    onClick={() => addMutation.mutate(r.id)} disabled={addMutation.isPending}>
-                    Add to Collection
+                  <Button fullWidth variant="outlined" startIcon={<Visibility />}
+                    onClick={() => router.push(`/webtoons/${r.id}`)}>
+                    View
                   </Button>
                 </CardContent>
               </Card>
@@ -99,7 +93,7 @@ export default function SearchPage() {
         <Box textAlign="center" py={8}>
           <SearchIcon sx={{ fontSize: 80, color: 'text.secondary', mb: 2 }} />
           <Typography variant="h6" color="textSecondary">Search for webtoons</Typography>
-          <Typography variant="body2" color="textSecondary">Find and add webtoons from the SUKUYAMI catalogue</Typography>
+          <Typography variant="body2" color="textSecondary">Find webtoons from the SUKUYAMI catalogue</Typography>
         </Box>
       )}
     </Box>

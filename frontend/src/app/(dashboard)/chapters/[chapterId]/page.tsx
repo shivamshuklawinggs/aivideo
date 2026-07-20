@@ -2,14 +2,15 @@
 import React, { useState } from 'react';
 import {
   Box, Typography, Card, CardContent, Grid, Chip, Button,
-  LinearProgress, Paper, Divider, Select, MenuItem,
-  FormControl, InputLabel, TextField,
+  LinearProgress, Divider, Select, MenuItem,
+  FormControl, InputLabel,
 } from '@mui/material';
-import { ArrowBack, PlayArrow, Description, VideoLibrary } from '@mui/icons-material';
+import { ArrowBack, Description, CheckCircle, Videocam } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 import { useRouter, useParams } from 'next/navigation';
 import { sukuyamiApi } from '@/services/api/sukuyamiApi';
+import VideoEditor from '@/components/VideoEditor';
 
 export default function ChapterDetailPage() {
   const router = useRouter();
@@ -17,8 +18,7 @@ export default function ChapterDetailPage() {
   const queryClient = useQueryClient();
 
   const [scriptStyle, setScriptStyle] = useState('narrative');
-  const [videoQuality, setVideoQuality] = useState('medium');
-  const [videoFormat, setVideoFormat] = useState('mp4');
+  const [videoEditorOpen, setVideoEditorOpen] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['chapter', chapterId],
@@ -32,10 +32,16 @@ export default function ChapterDetailPage() {
     onError: (e: any) => toast.error(`Failed: ${e.message}`),
   });
 
-  const videoMutation = useMutation({
-    mutationFn: () => sukuyamiApi.generateVideo(chapterId, { format: videoFormat, quality: videoQuality }),
-    onSuccess: () => { toast.success('Video generation started!'); queryClient.invalidateQueries({ queryKey: ['chapter', chapterId] }); },
+  const markReadMutation = useMutation({
+    mutationFn: () => sukuyamiApi.markChapterAsRead(chapterId),
+    onSuccess: () => { toast.success('Marked as read'); queryClient.invalidateQueries({ queryKey: ['chapter', chapterId] }); },
     onError: (e: any) => toast.error(`Failed: ${e.message}`),
+  });
+
+  const { data: pagesData, isLoading: pagesLoading } = useQuery({
+    queryKey: ['chapter-pages', chapterId],
+    queryFn: () => sukuyamiApi.getChapterPages(chapterId),
+    enabled: !!chapterId,
   });
 
   if (isLoading) return <Box sx={{ width: '100%', mt: 2 }}><LinearProgress /></Box>;
@@ -47,6 +53,9 @@ export default function ChapterDetailPage() {
   return (
     <Box sx={{ flexGrow: 1 }}>
       <Button startIcon={<ArrowBack />} onClick={() => router.back()} sx={{ mb: 2 }}>Back</Button>
+      <Button variant="outlined" startIcon={<CheckCircle />} onClick={() => markReadMutation.mutate()} disabled={markReadMutation.isPending || chapter.isRead} sx={{ mb: 2, ml: 2 }}>
+        {chapter.isRead ? 'Read' : 'Mark as Read'}
+      </Button>
 
       <Typography variant="h4" gutterBottom>
         Chapter {chapter.chapterNumber}: {chapter.title || ''}
@@ -58,7 +67,7 @@ export default function ChapterDetailPage() {
             <CardContent>
               <Typography variant="h6" gutterBottom>Chapter Info</Typography>
               <Grid container spacing={2}>
-                <Grid item xs={6} sm={3}><Typography variant="caption" color="textSecondary">Status</Typography><br /><Chip label={chapter.status} size="small" color={chapter.status === 'completed' ? 'success' : 'warning'} /></Grid>
+                <Grid item xs={6} sm={3}><Typography variant="caption" color="textSecondary">Read</Typography><br /><Chip label={chapter.isRead ? 'Read' : 'Unread'} size="small" color={chapter.isRead ? 'success' : 'warning'} /></Grid>
                 <Grid item xs={6} sm={3}><Typography variant="caption" color="textSecondary">Panels</Typography><br /><Typography variant="h6">{chapter.panelCount || 0}</Typography></Grid>
                 <Grid item xs={6} sm={3}><Typography variant="caption" color="textSecondary">Script</Typography><br /><Chip label={chapter.scriptGenerated ? 'Generated' : 'Not yet'} size="small" color={chapter.scriptGenerated ? 'success' : 'default'} /></Grid>
                 <Grid item xs={6} sm={3}><Typography variant="caption" color="textSecondary">Video</Typography><br /><Chip label={chapter.videoGenerated ? 'Generated' : 'Not yet'} size="small" color={chapter.videoGenerated ? 'success' : 'default'} /></Grid>
@@ -88,6 +97,25 @@ export default function ChapterDetailPage() {
               </CardContent>
             </Card>
           )}
+
+          <Card sx={{ mt: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>Panels</Typography>
+              {pagesLoading && <LinearProgress />}
+              {pagesData?.pages?.length ? (
+                <Box display="flex" flexDirection="column" gap={2}>
+                  {pagesData.pages.map((url: string, idx: number) => (
+                    <Box key={idx}>
+                      <Typography variant="caption" color="textSecondary" sx={{ mb: 0.5, display: 'block' }}>Page {idx + 1}</Typography>
+                      <img src={url} alt={`Page ${idx + 1}`} style={{ width: '100%', borderRadius: 8, display: 'block' }} loading="lazy" />
+                    </Box>
+                  ))}
+                </Box>
+              ) : (
+                !pagesLoading && <Typography variant="body2" color="textSecondary">No pages loaded yet.</Typography>
+              )}
+            </CardContent>
+          </Card>
         </Grid>
 
         <Grid item xs={12} md={4}>
@@ -115,36 +143,27 @@ export default function ChapterDetailPage() {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <VideoLibrary /> Generate Video
+                <Videocam /> Generate Video
               </Typography>
-              <FormControl fullWidth sx={{ mb: 2 }}>
-                <InputLabel>Format</InputLabel>
-                <Select value={videoFormat} label="Format" onChange={(e) => setVideoFormat(e.target.value)}>
-                  <MenuItem value="mp4">MP4</MenuItem>
-                  <MenuItem value="webm">WebM</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControl fullWidth sx={{ mb: 2 }}>
-                <InputLabel>Quality</InputLabel>
-                <Select value={videoQuality} label="Quality" onChange={(e) => setVideoQuality(e.target.value)}>
-                  <MenuItem value="low">Low</MenuItem>
-                  <MenuItem value="medium">Medium</MenuItem>
-                  <MenuItem value="high">High</MenuItem>
-                </Select>
-              </FormControl>
-              <Button fullWidth variant="contained" color="secondary" startIcon={<VideoLibrary />}
-                onClick={() => videoMutation.mutate()} disabled={videoMutation.isPending || !chapter.scriptGenerated}>
-                {videoMutation.isPending ? 'Generating...' : 'Generate Video'}
+              <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                Build a video from the manga panels in your browser. Reorder panels, adjust duration, and add effects.
+              </Typography>
+              <Button fullWidth variant="contained" color="secondary" startIcon={<Videocam />}
+                onClick={() => setVideoEditorOpen(true)}>
+                Open Video Editor
               </Button>
-              {!chapter.scriptGenerated && (
-                <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
-                  Generate a script first before creating a video.
-                </Typography>
-              )}
             </CardContent>
           </Card>
         </Grid>
       </Grid>
+
+      <VideoEditor
+        open={videoEditorOpen}
+        onClose={() => setVideoEditorOpen(false)}
+        pages={pagesData?.pages ?? []}
+        title={chapter.title}
+        chapterNumber={chapter.chapterNumber}
+      />
     </Box>
   );
 }
