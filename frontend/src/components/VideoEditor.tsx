@@ -29,7 +29,11 @@ import {
   Delete,
   Download,
   Videocam,
+  TextSnippet,
+  Refresh,
+  Translate,
 } from '@mui/icons-material';
+import type * as Tesseract from 'tesseract.js';
 
 type Effect = 'none' | 'fade' | 'zoom' | 'slide' | 'kenburns';
 
@@ -37,6 +41,14 @@ interface Clip {
   url: string;
   duration: number;
   effect: Effect;
+}
+
+interface Scene {
+  index: number;
+  text: string;
+  wordCount: number;
+  duration: number;
+  hindi?: string;
 }
 
 interface VideoEditorProps {
@@ -50,11 +62,19 @@ interface VideoEditorProps {
 const FPS = 30;
 const WIDTH = 1280;
 const HEIGHT = 720;
+const MIN_SCENE_DURATION = 1;
+const MAX_SCENE_DURATION = 8;
+const SCENE_BASE_DURATION = 0.5;
+const DEFAULT_WORDS_PER_SECOND = 2.5;
 
 function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function clamp(min: number, value: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 export default function VideoEditor({
@@ -71,6 +91,11 @@ export default function VideoEditor({
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultBlob, setResultBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scenes, setScenes] = useState<Scene[]>([]);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [wordsPerSecond, setWordsPerSecond] = useState(DEFAULT_WORDS_PER_SECOND);
+  const [lang, setLang] = useState('eng');
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -90,6 +115,7 @@ export default function VideoEditor({
       setResultBlob(null);
       setProgress(0);
       setError(null);
+      setScenes([]);
     }
   }, [open, pages]);
 
@@ -352,6 +378,100 @@ export default function VideoEditor({
     a.click();
   };
 
+  const applySceneDurations = () => {
+    setClips((prev) =>
+      prev.map((clip, i) => ({
+        ...clip,
+        duration: clamp(
+          MIN_SCENE_DURATION,
+          SCENE_BASE_DURATION + (scenes[i]?.wordCount || 0) / wordsPerSecond,
+          MAX_SCENE_DURATION
+        ),
+      }))
+    );
+  };
+
+  const sourceLangMap: Record<string, string> = {
+    eng: 'en',
+    jpn: 'ja',
+    'eng+jpn': 'en',
+  };
+
+  const translateToHindi = async () => {
+    if (!scenes.length) return;
+    setIsTranslating(true);
+    setError(null);
+    const source = sourceLangMap[lang] || 'en';
+    const next: Scene[] = [];
+    try {
+      for (let i = 0; i < scenes.length; i++) {
+        setProgress((i + 1) / scenes.length);
+        const scene = scenes[i];
+        if (!scene.text.trim()) {
+          next.push({ ...scene });
+          continue;
+        }
+        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(scene.text)}&langpair=${source}|hi`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const translated = data?.responseData?.translatedText;
+        if (typeof translated !== 'string') {
+          throw new Error(`Translation failed for scene ${i + 1}`);
+        }
+        next.push({ ...scene, hindi: translated.trim() });
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      setScenes(next);
+    } catch (e: any) {
+      setError(e.message || 'Failed to translate to Hindi');
+    } finally {
+      setIsTranslating(false);
+      setProgress(0);
+    }
+  };
+
+  const extractScenes = async () => {
+    if (!clips.length) return;
+    setIsExtracting(true);
+    setError(null);
+    try {
+      const images = await loadImages();
+      const tesseract = await import('tesseract.js');
+      const worker = await tesseract.createWorker(lang);
+      const newScenes: Scene[] = [];
+      for (let i = 0; i < images.length; i++) {
+        setProgress((i + 1) / images.length);
+        const img = images[i];
+        const ret = await worker.recognize(img, undefined, { blocks: true });
+        const blocks = ret.data.blocks ?? [];
+        const allWords: Tesseract.Word[] = [];
+        blocks.forEach((block) => allWords.push(...(block.words ?? [])));
+        allWords.sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
+        const text = allWords.map((w) => w.text).join(' ').trim();
+        const wordCount = text ? text.split(/\s+/).length : 0;
+        const duration = clamp(
+          MIN_SCENE_DURATION,
+          SCENE_BASE_DURATION + wordCount / wordsPerSecond,
+          MAX_SCENE_DURATION
+        );
+        newScenes.push({ index: i, text, wordCount, duration });
+      }
+      await worker.terminate();
+      setScenes(newScenes);
+      setClips((prev) =>
+        prev.map((clip, i) => ({
+          ...clip,
+          duration: newScenes[i]?.duration ?? clip.duration,
+        }))
+      );
+    } catch (e: any) {
+      setError(e.message || 'Failed to extract text from panels');
+    } finally {
+      setIsExtracting(false);
+      setProgress(0);
+    }
+  };
+
   return (
     <Dialog open={open} onClose={!isGenerating ? onClose : undefined} maxWidth="xl" fullWidth>
       <DialogTitle>Generate Video from Panels</DialogTitle>
@@ -408,6 +528,79 @@ export default function VideoEditor({
             <Typography variant="h6" gutterBottom>
               Clips ({clips.length}) · {formatTime(totalDuration)}
             </Typography>
+            <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<TextSnippet />}
+                onClick={extractScenes}
+                disabled={!clips.length || isExtracting || isTranslating || isGenerating || isPreviewing}
+              >
+                {isExtracting ? 'Extracting...' : 'Extract Scenes'}
+              </Button>
+              <FormControl size="small" sx={{ minWidth: 100 }}>
+                <InputLabel>Lang</InputLabel>
+                <Select
+                  value={lang}
+                  label="Lang"
+                  onChange={(e) => setLang(e.target.value as string)}
+                  disabled={isExtracting || isTranslating}
+                >
+                  <MenuItem value="eng">English</MenuItem>
+                  <MenuItem value="jpn">Japanese</MenuItem>
+                  <MenuItem value="eng+jpn">Eng + Jpn</MenuItem>
+                </Select>
+              </FormControl>
+              <TextField
+                label="Words/sec"
+                type="number"
+                size="small"
+                value={wordsPerSecond}
+                onChange={(e) => setWordsPerSecond(Math.max(0.5, parseFloat(e.target.value) || 0))}
+                inputProps={{ step: 0.1, min: 0.5 }}
+                disabled={isExtracting || isTranslating}
+                sx={{ width: 100 }}
+              />
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<Refresh />}
+                onClick={applySceneDurations}
+                disabled={!scenes.length || isExtracting || isTranslating}
+              >
+                Apply
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<Translate />}
+                onClick={translateToHindi}
+                disabled={!scenes.length || isExtracting || isTranslating}
+              >
+                {isTranslating ? 'Translating...' : 'To Hindi'}
+              </Button>
+            </Box>
+            {(isExtracting || isTranslating) && (
+              <Box mb={2}>
+                <LinearProgress variant="determinate" value={progress * 100} />
+                <Typography variant="caption">
+                  {isExtracting ? `OCR progress ${Math.round(progress * 100)}%` : `Translating ${Math.round(progress * 100)}%`}
+                </Typography>
+              </Box>
+            )}
+            {scenes.length > 0 && (
+              <Box mb={2}>
+                <TextField
+                  label="Scenes JSON"
+                  multiline
+                  fullWidth
+                  minRows={6}
+                  maxRows={10}
+                  value={JSON.stringify(scenes, null, 2)}
+                  InputProps={{ readOnly: true }}
+                />
+              </Box>
+            )}
             <List dense>
               {clips.map((clip, idx) => (
                 <ListItem
@@ -461,6 +654,11 @@ export default function VideoEditor({
                         </Select>
                       </FormControl>
                     </Box>
+                    {scenes[idx]?.hindi && (
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                        {scenes[idx].hindi}
+                      </Typography>
+                    )}
                   </Box>
                 </ListItem>
               ))}
