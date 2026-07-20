@@ -756,6 +756,15 @@ export default function VideoEditor({
               >
                 {isGenerating ? 'Recording...' : 'Export Video'}
               </Button>
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={<RecordVoiceOver />}
+                onClick={generateNarratedVideo}
+                disabled={!clips.length || !voiceProfileId || isGenerating || isPreviewing}
+              >
+                {isNarrating ? 'Narrating...' : 'Export w/ Narration'}
+              </Button>
               {resultUrl && (
                 <Button variant="outlined" startIcon={<Download />} onClick={downloadVideo}>
                   Download
@@ -898,6 +907,53 @@ export default function VideoEditor({
                     VTT
                   </Button>
                 </Box>
+              </Box>
+            )}
+            {voiceSamples.length > 0 && (
+              <Box mb={2}>
+                <Typography variant="subtitle2" gutterBottom>Voice Narration</Typography>
+                <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
+                  <FormControl size="small" sx={{ minWidth: 160 }}>
+                    <InputLabel>Sample Voice</InputLabel>
+                    <Select
+                      value={selectedSampleId}
+                      label="Sample Voice"
+                      onChange={(e) => {
+                        setSelectedSampleId(e.target.value as string);
+                        setVoiceProfileId(null);
+                      }}
+                      disabled={isCloning || isNarrating || isGenerating}
+                    >
+                      {voiceSamples
+                        .filter((s) => s.fileExists)
+                        .map((sample) => (
+                          <MenuItem key={sample.id} value={sample.id}>{sample.name}</MenuItem>
+                        ))}
+                    </Select>
+                  </FormControl>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<RecordVoiceOver />}
+                    onClick={cloneVoice}
+                    disabled={!selectedSampleId || isCloning || isNarrating || isGenerating}
+                  >
+                    {isCloning ? 'Cloning...' : 'Clone Voice'}
+                  </Button>
+                  {voiceProfileId && (
+                    <Typography variant="caption" color="success.main">Voice cloned</Typography>
+                  )}
+                </Box>
+                {voiceProfileId && (
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                    Click "Export w/ Narration" to generate final video with AI voiceover.
+                  </Typography>
+                )}
+                {voiceSamples.filter((s) => s.fileExists).length === 0 && (
+                  <Typography variant="caption" color="error" display="block" sx={{ mt: 0.5 }}>
+                    No voice sample files found in backend public/voice-samples.
+                  </Typography>
+                )}
               </Box>
             )}
             <List dense>
