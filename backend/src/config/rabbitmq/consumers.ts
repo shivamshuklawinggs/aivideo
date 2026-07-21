@@ -1,24 +1,16 @@
 import { rabbitMQService } from './rabbitmq.service';
 import { QUEUE_NAMES, ROUTING_KEYS } from './constants';
 import logger from '../../config/logger';
-import Webtoon from '../../models/Webtoon';
-import Panel from '../../models/Panel';
+
 import OllamaService from '../../services/OllamaService';
 import { DEFAULT_MODELS } from '../../config/aiModels';
-import GeneratedScript from '../../models/GeneratedScript';
+
 
 const handleDataViaROutingKey = async (data: any, routingKey: string) => {
     try {
         console.log("routingKey", routingKey);
         
         switch (routingKey) {
-        
-          
-            // AI Video Processing - Generate Script (Core Workflow)
-            case ROUTING_KEYS.AI_VIDEO.GENERATE_SCRIPT:
-                await handleGenerateScriptJob(data);
-                break;
-                
             // AI Worker - Text Generation
             case ROUTING_KEYS.AI_WORKER.TEXT_GENERATION:
                 console.log('Processing AI text generation:', data.taskId);
@@ -65,96 +57,6 @@ const handleDataViaROutingKey = async (data: any, routingKey: string) => {
     }
 };
 
-
-// Handle generate script job
-const handleGenerateScriptJob = async (data: any) => {
-    try {
-        const { webtoonId, isUpdate } = data;
-        
-        if (!webtoonId) {
-            throw new Error('Missing webtoonId for generate script job');
-        }
-
-        logger.info(`Generating script for webtoon: ${webtoonId} ${isUpdate ? '(Update)' : '(New)'}`);
-
-        const webtoon = await Webtoon.findById(webtoonId);
-        if (!webtoon) {
-            throw new Error('Webtoon not found');
-        }
-
-        webtoon.processingStatus = 'processing';
-        webtoon.processingProgress = 0;
-        await webtoon.save();
-
-        // Get all panels with their analysis
-        const panels = await Panel.find({ webtoonId }).sort({ sequence: 1 });
-        
-        // Prepare panel data for script generation
-        const panelAnalyses = panels.map(panel => ({
-            panelNumber: panel.panelNumber,
-            sequence: panel.sequence,
-            description: 'Panel description', // Use generic description since metadata doesn't have description field
-            imageUrl: panel.imageUrl
-        }));
-
-        // Generate script using AI
-        const script = await OllamaService.generateStoryScript(
-            panelAnalyses,
-            {
-                title: webtoon.title,
-                description: webtoon.description,
-                author: webtoon.author,
-                genres: webtoon.genres
-            }
-        );
-
-        // Save or update generated script
-        if (isUpdate) {
-            // Update existing script
-            await GeneratedScript.findOneAndUpdate(
-                { webtoonId },
-                {
-                    script: script,
-                    'metadata.totalPanels': panels.length,
-                    'metadata.generatedAt': new Date(),
-                    'metadata.lastUpdated': new Date(),
-                    version: { $inc: 1 }
-                },
-                { upsert: true }
-            );
-            logger.info(`Script updated for webtoon: ${webtoonId}`);
-        } else {
-            // Create new script
-            await GeneratedScript.create({
-                webtoonId,
-                script: script,
-                metadata: {
-                    totalPanels: panels.length,
-                    generatedAt: new Date()
-                }
-            });
-            logger.info(`Script created for webtoon: ${webtoonId}`);
-        }
-
-        webtoon.processingStatus = 'processing';
-        webtoon.processingProgress = 100;
-        await webtoon.save();
-
-        logger.info(`Script generation completed for webtoon: ${webtoonId}`);
-
-    } catch (error: any) {
-        logger.error(`Generate script failed for webtoon ${data.webtoonId}:`, error);
-        
-        if (data.webtoonId) {
-            await Webtoon.findByIdAndUpdate(data.webtoonId, {
-                processingStatus: 'failed',
-                errorMessage: error.message,
-            });
-        }
-        
-        throw error;
-    }
-};
 
 
 

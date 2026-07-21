@@ -192,52 +192,6 @@ router.post('/chapters/:chapterId/read', authenticate, sukuyamiController.markCh
 router.post('/webtoons/:webtoonId/read-all', authenticate, sukuyamiController.markAllChaptersAsRead);
 
 
-/**
- * @swagger
- * /api/sukuyami/chapters/{chapterId}/script:
- *   post:
- *     summary: Generate script for a chapter
- *     tags: [Sukuyami]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: chapterId
- *         required: true
- *         schema:
- *           type: string
- *         description: Chapter ID
- *     requestBody:
- *       required: false
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               style:
- *                 type: string
- *                 enum: [narrative, dramatic, educational, casual]
- *                 default: narrative
- *                 description: Script style
- *               durationPerPanel:
- *                 type: number
- *                 default: 3
- *                 description: Duration per panel in seconds
- *               model:
- *                 type: string
- *                 default: gpt-4
- *                 description: AI model to use
- *     responses:
- *       200:
- *         description: Script generated successfully
- *       404:
- *         description: Chapter not found
- *       403:
- *         description: Access denied
- *       401:
- *         description: Unauthorized
- */
-router.post('/chapters/:chapterId/script', authenticate, sukuyamiController.generateScript);
 
 /**
  * @swagger
@@ -288,5 +242,30 @@ router.get('/search', sukuyamiController.searchWebtoons);
  *         description: Unauthorized
  */
 router.get('/dashboard', authenticate, sukuyamiController.getDashboardStats);
+
+/**
+ * @swagger
+ * /api/sukuyami/proxy/file:
+ *   get:
+ *     summary: Proxy a remote file through the backend
+ *     tags: [Sukuyami]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: url
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: URL of the remote file to proxy
+ *     responses:
+ *       200:
+ *         description: Proxied file content
+ *       400:
+ *         description: URL is required
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/proxy/file', authenticate, sukuyamiController.proxyFile);
 
 export default router;

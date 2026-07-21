@@ -1,8 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import mongoose from 'mongoose';
-import Webtoon from '../models/Webtoon';
-import Chapter from '../models/Chapter';
-import ScriptGenerationService from '../services/scriptGenerationService';
+import axios from 'axios';
 import SukuyamiGraphQLService from '../services/sukuyamiGraphQLService';
 import logger from '../config/logger';
 
@@ -52,7 +49,6 @@ function mapSukuyamiChapterToChapter(chapter: any): any {
   };
 }
 
-  const scriptService = new ScriptGenerationService();
   const graphqlService = new SukuyamiGraphQLService();
 class SukuyamiController {
 
@@ -263,38 +259,7 @@ class SukuyamiController {
   }
 
 
-  // Generate script for a chapter
-  async generateScript(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { chapterId } = req.params;
-      const { style, durationPerPanel, model } = req.body;
-
-      // Verify chapter belongs to user
-      const chapter = await Chapter.findById(chapterId).populate('webtoonId');
-      if (!chapter) {
-        return res.status(404).json({
-          success: false,
-          message: 'Chapter not found'
-        });
-      }
-
-    
-      const script = await scriptService.generateScriptForChapter(
-        new mongoose.Types.ObjectId(chapterId),
-        { style, durationPerPanel, model }
-      );
-
-      res.json({
-        success: true,
-        message: 'Script generated successfully',
-        data: { script }
-      });
-
-    } catch (error) {
-      logger.error('Generate script failed:', error);
-      return next(error);
-    }
-  }
+ 
 
   // Search webtoons via SUKUYAMI API
   async searchWebtoons(req: Request, res: Response, next: NextFunction) {
@@ -342,19 +307,15 @@ class SukuyamiController {
         completedChapters,
         chaptersWithVideo,
         recentActivity
-      ] = await Promise.all([
-        Webtoon.countDocuments({  }),
-        Webtoon.countDocuments({  status: 'ongoing' }),
-        Webtoon.countDocuments({  status: 'completed' }),
-        Chapter.countDocuments({  }),
-        Chapter.countDocuments({  status: 'completed' }),
-        Chapter.countDocuments({  videoUrl: { $exists: true } }),
-        Chapter.find({  })
-          .sort({ updatedAt: -1 })
-          .limit(5)
-          .select('title chapterNumber status updatedAt videoGeneratedAt')
-          .lean()
-      ]);
+      ] = [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
 
       const stats = {
         webtoons: {
@@ -392,6 +353,31 @@ class SukuyamiController {
       });
     } catch (error) {
       logger.error('Get sources failed:', error);
+      return next(error);
+    }
+  }
+
+  // Proxy a remote file (e.g. panel images) to avoid CORS issues in the browser
+  async proxyFile(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { url } = req.query;
+      if (!url || typeof url !== 'string') {
+        return res.status(400).json({
+          success: false,
+          message: 'url query parameter is required',
+        });
+      }
+
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 60000,
+      });
+
+      const contentType = response.headers['content-type'];
+      res.set('Content-Type', typeof contentType === 'string' ? contentType : 'application/octet-stream');
+      res.send(response.data);
+    } catch (error) {
+      logger.error('Proxy file failed:', error);
       return next(error);
     }
   }

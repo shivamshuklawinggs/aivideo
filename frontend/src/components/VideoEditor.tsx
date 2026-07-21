@@ -38,6 +38,7 @@ import {
   RecordVoiceOver,
 } from '@mui/icons-material';
 import type * as Tesseract from 'tesseract.js';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { voiceApi, VoiceSample } from '@/services/api/voiceApi';
 import { apiClient } from '@/services/api/apiClient';
 
@@ -128,9 +129,7 @@ export default function VideoEditor({
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const audioContextRef = useRef<AudioContext | null>(null);
+  const ffmpegRef = useRef<FFmpeg | null>(null);
 
   useEffect(() => {
     if (open && pages.length) {
@@ -173,7 +172,6 @@ export default function VideoEditor({
   useEffect(() => {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
 
@@ -182,9 +180,12 @@ export default function VideoEditor({
   const loadImages = useCallback(async () => {
     const images: HTMLImageElement[] = [];
     for (const clip of clips) {
+      const proxyUrl = `/sukuyami/proxy/file?url=${encodeURIComponent(clip.url)}`;
+      const res = await apiClient.get(proxyUrl, { responseType: 'arraybuffer' });
+      const blob = new Blob([res.data as ArrayBuffer]);
+      const url = URL.createObjectURL(blob);
       const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = clip.url;
+      img.src = url;
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
         img.onerror = () => reject(new Error(`Failed to load image: ${clip.url}`));
@@ -193,6 +194,21 @@ export default function VideoEditor({
     }
     return images;
   }, [clips]);
+
+  const loadFFmpeg = async () => {
+    if (ffmpegRef.current) return ffmpegRef.current;
+    const ffmpeg = new FFmpeg();
+    ffmpeg.on('log', ({ message }) => console.log(message));
+    await ffmpeg.load({ coreURL: '/ffmpeg/ffmpeg-core.js' });
+    ffmpegRef.current = ffmpeg;
+    return ffmpeg;
+  };
+
+  const canvasToPngBlob = async (canvas: HTMLCanvasElement): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Canvas toBlob failed'))), 'image/png');
+    });
+  };
 
   const getClipIndexAtTime = useCallback(
     (time: number) => {
@@ -239,6 +255,56 @@ export default function VideoEditor({
     ctx.globalAlpha = 1;
   };
 
+  const drawClipFrame = (
+    ctx: CanvasRenderingContext2D,
+    index: number,
+    clipTime: number,
+    images: HTMLImageElement[]
+  ) => {
+    if (index < 0 || index >= clips.length || !images[index]) return;
+
+    const clip = clips[index];
+    const img = images[index];
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, WIDTH, HEIGHT);
+    ctx.clip();
+
+    let alpha = 1;
+    let scale = 1;
+    let x = 0;
+    let y = 0;
+
+    const effectDuration = Math.min(clip.duration, 1);
+
+    switch (clip.effect) {
+      case 'fade':
+        alpha = Math.min(1, clipTime / effectDuration);
+        break;
+      case 'zoom':
+        scale = 1 + 0.2 * (clipTime / clip.duration);
+        break;
+      case 'slide':
+        if (clipTime < effectDuration) {
+          const t = clipTime / effectDuration;
+          x = (1 - t) * -WIDTH * 0.3;
+        }
+        break;
+      case 'kenburns':
+        scale = 1 + 0.15 * (clipTime / clip.duration);
+        x = -WIDTH * 0.05 * (clipTime / clip.duration);
+        y = -HEIGHT * 0.05 * (clipTime / clip.duration);
+        break;
+      default:
+        break;
+    }
+
+    ctx.translate(x, y);
+    drawImageCover(ctx, img, alpha, scale);
+    ctx.restore();
+  };
+
   const drawFrame = useCallback(
     (ctx: CanvasRenderingContext2D, time: number, images: HTMLImageElement[]) => {
       ctx.fillStyle = '#000';
@@ -249,47 +315,8 @@ export default function VideoEditor({
       const index = getClipIndexAtTime(time);
       if (index < 0 || index >= clips.length) return;
 
-      const clip = clips[index];
-      const clipTime = Math.min(getClipTime(time, index), clip.duration);
-      const img = images[index];
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, WIDTH, HEIGHT);
-      ctx.clip();
-
-      let alpha = 1;
-      let scale = 1;
-      let x = 0;
-      let y = 0;
-
-      const effectDuration = Math.min(clip.duration, 1);
-
-      switch (clip.effect) {
-        case 'fade':
-          alpha = Math.min(1, clipTime / effectDuration);
-          break;
-        case 'zoom':
-          scale = 1 + 0.2 * (clipTime / clip.duration);
-          break;
-        case 'slide':
-          if (clipTime < effectDuration) {
-            const t = clipTime / effectDuration;
-            x = (1 - t) * -WIDTH * 0.3;
-          }
-          break;
-        case 'kenburns':
-          scale = 1 + 0.15 * (clipTime / clip.duration);
-          x = -WIDTH * 0.05 * (clipTime / clip.duration);
-          y = -HEIGHT * 0.05 * (clipTime / clip.duration);
-          break;
-        default:
-          break;
-      }
-
-      ctx.translate(x, y);
-      drawImageCover(ctx, img, alpha, scale);
-      ctx.restore();
+      const clipTime = Math.min(getClipTime(time, index), clips[index].duration);
+      drawClipFrame(ctx, index, clipTime, images);
 
       if (totalDuration > 0) {
         ctx.fillStyle = 'rgba(255,255,255,0.25)';
@@ -340,60 +367,63 @@ export default function VideoEditor({
     setResultUrl(null);
     setResultBlob(null);
     setError(null);
-    chunksRef.current = [];
 
     try {
+      const ffmpeg = await loadFFmpeg();
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Canvas not supported');
 
       const images = await loadImages();
 
-      const stream = canvas.captureStream(FPS);
-      const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
-        ? 'video/webm; codecs=vp9'
-        : MediaRecorder.isTypeSupported('video/webm')
-        ? 'video/webm'
-        : '';
-      if (!mimeType) {
-        throw new Error('Browser does not support webm recording');
+      const clipFiles: string[] = [];
+      for (let i = 0; i < clips.length; i++) {
+        const clip = clips[i];
+        const clipFrames = Math.ceil(clip.duration * FPS);
+        for (let f = 1; f <= clipFrames; f++) {
+          const clipTime = Math.min((f - 1) / FPS, clip.duration);
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, WIDTH, HEIGHT);
+          drawClipFrame(ctx, i, clipTime, images);
+          const blob = await canvasToPngBlob(canvas);
+          const data = new Uint8Array(await blob.arrayBuffer());
+          await ffmpeg.writeFile(`frame_${String(f).padStart(3, '0')}.png`, data);
+        }
+
+        const clipFile = `clip_${i}.mp4`;
+        await ffmpeg.exec([
+          '-framerate', String(FPS),
+          '-i', 'frame_%03d.png',
+          '-c:v', 'libx264',
+          '-pix_fmt', 'yuv420p',
+          '-preset', 'ultrafast',
+          clipFile,
+        ]);
+
+        for (let f = 1; f <= clipFrames; f++) {
+          await ffmpeg.deleteFile(`frame_${String(f).padStart(3, '0')}.png`);
+        }
+        clipFiles.push(clipFile);
+        setProgress((i + 1) / clips.length);
       }
 
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        setResultBlob(blob);
-        setResultUrl(URL.createObjectURL(blob));
-        setIsGenerating(false);
-        setProgress(1);
-      };
-      recorder.onerror = () => {
-        setIsGenerating(false);
-      };
+      const videoList = clipFiles.map((f) => `file '${f}'`).join('\n');
+      await ffmpeg.writeFile('video_list.txt', videoList);
+      await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'video_list.txt', '-c', 'copy', 'output.mp4']);
 
-      recorder.start();
+      const outputData = (await ffmpeg.readFile('output.mp4')) as Uint8Array;
+      const blob = new Blob([outputData.buffer as ArrayBuffer], { type: 'video/mp4' });
+      setResultBlob(blob);
+      setResultUrl(URL.createObjectURL(blob));
+      setProgress(1);
 
-      const totalFrames = Math.ceil(totalDuration * FPS);
-      let frame = 0;
-
-      intervalRef.current = setInterval(() => {
-        if (frame >= totalFrames) {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          recorder.stop();
-          return;
-        }
-        const time = frame / FPS;
-        drawFrame(ctx, time, images);
-        setProgress(time / totalDuration);
-        frame++;
-      }, 1000 / FPS);
+      await ffmpeg.deleteFile('output.mp4');
+      await ffmpeg.deleteFile('video_list.txt');
+      for (const f of clipFiles) await ffmpeg.deleteFile(f);
     } catch (error: any) {
       console.error(error);
       setError(error.message || 'Video generation failed');
+    } finally {
       setIsGenerating(false);
     }
   };
@@ -425,7 +455,7 @@ export default function VideoEditor({
     const a = document.createElement('a');
     a.href = resultUrl;
     const titleSafe = (title || 'chapter').replace(/[^a-z0-9]/gi, '_');
-    a.download = `${titleSafe}_${chapterNumber || '0'}.webm`;
+    a.download = `${titleSafe}_${chapterNumber || '0'}.mp4`;
     a.click();
   };
 
@@ -574,7 +604,6 @@ export default function VideoEditor({
     setResultUrl(null);
     setResultBlob(null);
     setError(null);
-    chunksRef.current = [];
 
     if (!voiceProfileId) {
       setError('Please clone a voice first');
@@ -584,107 +613,97 @@ export default function VideoEditor({
     }
 
     try {
+      const ffmpeg = await loadFFmpeg();
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas not supported');
+
       const images = await loadImages();
 
       const segments = scenes.map((scene) => ({
         text: subtitleLang === 'hindi' ? scene.hindi || scene.text : scene.text,
       }));
       const language = subtitleLang === 'hindi' ? 'hi' : 'en';
-
       const narrateRes = await voiceApi.narrate({ voiceProfileId, segments, language });
       const audioFiles = [...narrateRes.audioFiles].sort((a, b) => a.segmentIndex - b.segmentIndex);
 
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioContext = new AudioContextClass();
-      audioContextRef.current = audioContext;
-
-      const audioBuffers = await Promise.all(
-        audioFiles.map(async (af) => {
-          const res = await apiClient.get(af.url, { responseType: 'arraybuffer' });
-          return audioContext.decodeAudioData(res.data as ArrayBuffer);
-        })
-      );
-
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas not supported');
-
-      const destination = audioContext.createMediaStreamDestination();
-      const videoStream = canvas.captureStream(FPS);
-      const combinedStream = new MediaStream([...videoStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
-
-      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-        ? 'video/webm;codecs=vp9,opus'
-        : MediaRecorder.isTypeSupported('video/webm')
-        ? 'video/webm'
-        : '';
-      if (!mimeType) throw new Error('Browser does not support webm recording');
-
-      const recorder = new MediaRecorder(combinedStream, { mimeType });
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        setResultBlob(blob);
-        setResultUrl(URL.createObjectURL(blob));
-        setIsNarrating(false);
-        setIsGenerating(false);
-        setProgress(1);
-        if (audioContextRef.current) {
-          audioContextRef.current.close();
-          audioContextRef.current = null;
+      const clipFiles: string[] = [];
+      for (let i = 0; i < clips.length; i++) {
+        const clip = clips[i];
+        const clipFrames = Math.ceil(clip.duration * FPS);
+        for (let f = 1; f <= clipFrames; f++) {
+          const clipTime = Math.min((f - 1) / FPS, clip.duration);
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, WIDTH, HEIGHT);
+          drawClipFrame(ctx, i, clipTime, images);
+          const blob = await canvasToPngBlob(canvas);
+          const data = new Uint8Array(await blob.arrayBuffer());
+          await ffmpeg.writeFile(`frame_${String(f).padStart(3, '0')}.png`, data);
         }
-      };
-      recorder.onerror = () => {
-        setError('Recording failed');
-        setIsNarrating(false);
-        setIsGenerating(false);
-        if (audioContextRef.current) {
-          audioContextRef.current.close();
-          audioContextRef.current = null;
-        }
-      };
 
-      await audioContext.resume();
-      const startTime = audioContext.currentTime + 0.1;
-      let sceneStart = startTime;
-      audioBuffers.forEach((buffer, i) => {
-        const source = audioContext.createBufferSource();
-        source.buffer = buffer;
-        source.connect(destination);
-        const clipDuration = clips[i]?.duration ?? 1;
-        if (buffer.duration > 0) {
-          source.start(sceneStart, 0, Math.min(clipDuration, buffer.duration));
+        const audioFile = audioFiles.find((af) => af.segmentIndex === i);
+        const audioInput = `clip_${i}_audio.m4a`;
+        if (audioFile) {
+          const res = await apiClient.get(audioFile.url, { responseType: 'arraybuffer' });
+          await ffmpeg.writeFile(`clip_${i}_audio.wav`, new Uint8Array(res.data as ArrayBuffer));
+          await ffmpeg.exec([
+            '-i', `clip_${i}_audio.wav`,
+            '-af', 'apad',
+            '-t', String(clip.duration),
+            '-c:a', 'aac',
+            audioInput,
+          ]);
+          await ffmpeg.deleteFile(`clip_${i}_audio.wav`);
+        } else {
+          await ffmpeg.exec([
+            '-f', 'lavfi',
+            '-i', 'anullsrc=r=24000:cl=mono',
+            '-t', String(clip.duration),
+            '-c:a', 'aac',
+            audioInput,
+          ]);
         }
-        sceneStart += clipDuration;
-      });
 
-      recorder.start();
+        const clipFile = `clip_${i}.mp4`;
+        await ffmpeg.exec([
+          '-framerate', String(FPS),
+          '-i', 'frame_%03d.png',
+          '-i', audioInput,
+          '-c:v', 'libx264',
+          '-pix_fmt', 'yuv420p',
+          '-preset', 'ultrafast',
+          '-c:a', 'aac',
+          '-shortest',
+          clipFile,
+        ]);
 
-      const totalFrames = Math.ceil(totalDuration * FPS);
-      let frame = 0;
-      intervalRef.current = setInterval(() => {
-        if (frame >= totalFrames) {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          recorder.stop();
-          return;
+        for (let f = 1; f <= clipFrames; f++) {
+          await ffmpeg.deleteFile(`frame_${String(f).padStart(3, '0')}.png`);
         }
-        const time = frame / FPS;
-        drawFrame(ctx, time, images);
-        setProgress(time / totalDuration);
-        frame++;
-      }, 1000 / FPS);
+        await ffmpeg.deleteFile(audioInput);
+        clipFiles.push(clipFile);
+        setProgress((i + 1) / clips.length);
+      }
+
+      const videoList = clipFiles.map((f) => `file '${f}'`).join('\n');
+      await ffmpeg.writeFile('video_list.txt', videoList);
+      await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'video_list.txt', '-c', 'copy', 'output.mp4']);
+
+      const outputData = (await ffmpeg.readFile('output.mp4')) as Uint8Array;
+      const blob = new Blob([outputData.buffer as ArrayBuffer], { type: 'video/mp4' });
+      setResultBlob(blob);
+      setResultUrl(URL.createObjectURL(blob));
+      setProgress(1);
+
+      await ffmpeg.deleteFile('output.mp4');
+      await ffmpeg.deleteFile('video_list.txt');
+      for (const f of clipFiles) await ffmpeg.deleteFile(f);
     } catch (error: any) {
       console.error(error);
       setError(error.message || 'Narrated video generation failed');
+    } finally {
       setIsNarrating(false);
       setIsGenerating(false);
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
     }
   };
 
