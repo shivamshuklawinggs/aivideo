@@ -1,0 +1,77 @@
+{
+  "chapterId": "1130",
+  "totalDuration": 80.6,
+  "panelCount": 10,
+  "entries": [
+    {
+      "panel": 1,
+      "start": "00:00:00",
+      "end": "00:00:06",
+      "duration": "6.9s",
+      "narration": "The dense jungle loomed before them, a seemingly endless expanse of greenery and mystery.  (pause) Dr."
+    },
+    {
+      "panel": 2,
+      "start": "00:00:06",
+      "end": "00:00:15",
+      "duration": "8.5s",
+      "narration": "Maria Rodriguez, a renowned archaeologist, led her team with a sense of purpose, driven by the thrill of discovery.  ..."
+    },
+    {
+      "panel": 3,
+      "start": "00:00:15",
+      "end": "00:00:24",
+      "duration": "8.9s",
+      "narration": "The air was thick with humidity, the sounds of exotic birds filling the air as they pushed through the undergrowth.  ..."
+    },
+    {
+      "panel": 4,
+      "start": "00:00:24",
+      "end": "00:00:36",
+      "duration": "11.7s",
+      "narration": "Their mission was to find the fabled Golden Idol, said to grant immense power to its possessor.  (emphasis) The stakes were high, but Maria's determination drove her forward."
+    },
+    {
+      "panel": 5,
+      "start": "00:00:36",
+      "end": "00:00:44",
+      "duration": "8.1s",
+      "narration": "... As they ventured deeper into the jungle, the team encountered countless obstacles, from raging rivers to treacherous terrain."
+    },
+    {
+      "panel": 6,
+      "start": "00:00:44",
+      "end": "00:00:52",
+      "duration": "8.1s",
+      "narration": "... The thrill of discovery hung in the air like a challenge, and Maria's resolve hardened with each step."
+    },
+    {
+      "panel": 7,
+      "start": "00:00:52",
+      "end": "00:00:59",
+      "duration": "7.3s",
+      "narration": "... Finally, after days of grueling work, they stumbled upon an ancient temple hidden behind a waterfall."
+    },
+    {
+      "panel": 8,
+      "start": "00:00:59",
+      "end": "00:01:08",
+      "duration": "8.5s",
+      "narration": "(pause) The entrance was guarded by a pair of imposing stone statues, their eyes glowing with an otherworldly energy.  ..."
+    },
+    {
+      "panel": 9,
+      "start": "00:01:08",
+      "end": "00:01:14",
+      "duration": "6.1s",
+      "narration": "As Maria cautiously stepped forward, she felt an eerie sense of being watched.  ..."
+    },
+    {
+      "panel": 10,
+      "start": "00:01:14",
+      "end": "00:01:20",
+      "duration": "6.5s",
+      "narration": "She pushed aside the vines and stepped into the unknown, her heart pounding in anticipation."
+    }
+  ]
+}

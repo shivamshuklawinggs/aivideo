@@ -93,11 +93,6 @@ export class SukuyamiGraphQLService {
         query: queryString,
         variables,
       });
-      console.log((response.data.data as unknown as any).fetchSourceManga?.mangas)
-      console.log({
-        query: queryString,
-        variables,
-      })
       if (response.data.errors) {
         const errorMessages = response.data.errors.map(err => err.message).join(', ');
         throw new Error(`GraphQL errors: ${errorMessages}`);

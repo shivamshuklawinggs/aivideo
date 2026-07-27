@@ -63,6 +63,13 @@ export interface WebtoonSearchParams {
 }
 
 export const sukuyamiApi = {
+  // Popular webtoons
+  getPopularWebtoons: async (params?: { limit?: number }) => {
+    const response = await apiClient.get('/sukuyami/webtoons/popular', { params });
+    const d = response.data?.data;
+    return d?.webtoons ?? [];
+  },
+
   // Webtoons — backend: { success, data: { webtoons: [], pagination: {} } }
   getWebtoons: async (params?: WebtoonSearchParams) => {
     const response = await apiClient.get('/sukuyami/webtoons', { params });
@@ -111,15 +118,6 @@ export const sukuyamiApi = {
   markAllChaptersAsRead: async (webtoonId: string) => {
     const response = await apiClient.post(`/sukuyami/webtoons/${webtoonId}/read-all`);
     return response.data?.data?.chapters ?? [];
-  },
-
-  // Script generation
-  generateScript: async (
-    chapterId: string,
-    options?: { style?: string; durationPerPanel?: number; model?: string }
-  ) => {
-    const response = await apiClient.post(`/sukuyami/chapters/${chapterId}/script`, options);
-    return response.data?.data ?? response.data;
   },
 
   // Dashboard — backend: { success, data: { stats: { webtoons, chapters, recentActivity } } }

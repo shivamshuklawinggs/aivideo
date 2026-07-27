@@ -138,11 +138,7 @@ const UserSchema = new Schema<IUser>(
   }
 );
 
-UserSchema.index({ email: 1 });
 UserSchema.index({ createdAt: -1 });
-
-
-
 UserSchema.methods.comparePassword = async function (
   candidatePassword: string
 ): Promise<boolean> {

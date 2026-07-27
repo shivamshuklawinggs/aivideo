@@ -42,9 +42,15 @@ export default function WebtoonsPage() {
     <Box sx={{ flexGrow: 1 }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4">Webtoons</Typography>
-        <Box>
+        <Box display="flex" gap={2}>
+          <Button variant="outlined" startIcon={<FilterList />} onClick={() => router.push('/my-page')}>
+            My Page
+          </Button>
           <Button variant="outlined" startIcon={<Sync />} onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
             Sync All
+          </Button>
+          <Button variant="contained" color="secondary" startIcon={<VideoLibrary />} onClick={() => router.push('/popular')}>
+            Popular
           </Button>
         </Box>
       </Box>

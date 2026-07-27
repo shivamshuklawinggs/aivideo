@@ -30,22 +30,13 @@ export default function ScriptsPage() {
     enabled: !!webtoonFilter,
   });
 
-  const scriptMutation = useMutation({
-    mutationFn: ({ chapterId, style }: { chapterId: string; style: string }) =>
-      sukuyamiApi.generateScript(chapterId, { style }),
-    onSuccess: () => { toast.success('Script generation started!'); queryClient.invalidateQueries({ queryKey: ['allChapters'] }); },
-    onError: (e: any) => toast.error(`Failed: ${e.message}`),
-  });
-
   const chapters = chaptersData?.data || [];
-  const scriptsGenerated = chapters.filter((c: any) => c.scriptGenerated).length;
   return (
     <Box sx={{ flexGrow: 1 }}>
       <Typography variant="h4" gutterBottom>Scripts & Videos</Typography>
 
       <Grid container spacing={3} sx={{ mb: 3 }}>
         {[
-          { label: 'Scripts Generated', value: scriptsGenerated, color: 'primary.main', icon: <Description /> },
           { label: 'Total Chapters', value: chapters.length, color: 'info.main', icon: <Book /> },
         ].map((stat) => (
           <Grid item xs={12} sm={4} key={stat.label}>
@@ -89,8 +80,6 @@ export default function ScriptsPage() {
                 <TableCell>#</TableCell>
                 <TableCell>Title</TableCell>
                 <TableCell>Status</TableCell>
-                <TableCell>Script</TableCell>
-                <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -99,16 +88,6 @@ export default function ScriptsPage() {
                   <TableCell>{chapter.chapterNumber}</TableCell>
                   <TableCell>{chapter.title || `Chapter ${chapter.chapterNumber}`}</TableCell>
                   <TableCell><Chip label={chapter.status} size="small" /></TableCell>
-                  <TableCell><Chip label={chapter.scriptGenerated ? 'Done' : 'Pending'} color={chapter.scriptGenerated ? 'success' : 'default'} size="small" /></TableCell>
-                  <TableCell>
-                    <Box display="flex" gap={0.5} onClick={(e) => e.stopPropagation()}>
-                      <Tooltip title="Generate Script">
-                        <IconButton size="small" color="primary" onClick={() => scriptMutation.mutate({ chapterId: chapter._id, style: 'narrative' })} disabled={scriptMutation.isPending}>
-                          <Description fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

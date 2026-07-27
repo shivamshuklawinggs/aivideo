@@ -12,12 +12,14 @@ function mapSukuyamiStatus(status?: string): string {
 }
 
 function mapSukuyamiMangaToWebtoon(manga: any): any {
-  return {
+const graphqlUrl = process.env.SUKUYAMI_GRAPHQL_URL || 'http://localhost:4567/api/graphql';
+  const graphqlDomainHost = graphqlUrl.replace('/api/graphql', '');
+      return {
     _id: String(manga.id),
     title: manga.title || '',
     description: manga.description || '',
     author: manga.author || '',
-    coverImage: manga.thumbnailUrl || '',
+    coverImage: graphqlDomainHost+manga.thumbnailUrl || '',
     status: mapSukuyamiStatus(manga.status),
     totalChapters: manga.chapters?.totalCount ?? 0,
     genres: manga.genre || [],
@@ -54,6 +56,32 @@ class SukuyamiController {
 
   constructor() {
   
+  }
+
+  // Get popular webtoons sorted by popularity (from overall database, not library)
+  async getPopularWebtoons(req: Request, res: Response, next: NextFunction) {
+    try {
+      const limit = parseInt(req.query.limit as string) || 20;
+      
+      // Get popular manga from overall database using search
+      const popularManga = await graphqlService.searchManga('', 1);
+      
+      // Take first N results as popular webtoons
+      const limitedManga = popularManga.slice(0, limit);
+      
+      // Map to webtoon format
+      const webtoons = limitedManga.map(mapSukuyamiMangaToWebtoon);
+
+      res.json({
+        success: true,
+        data: {
+          webtoons,
+        },
+      });
+    } catch (error) {
+      logger.error('Error fetching popular webtoons:', error);
+      next(error);
+    }
   }
 
   // Get all webtoons from SUKUYAMI library with pagination and filtering

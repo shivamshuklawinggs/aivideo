@@ -26,12 +26,6 @@ export default function ChaptersPage() {
     placeholderData: (prev) => prev,
   });
 
-  const scriptMutation = useMutation({
-    mutationFn: (chapterId: string) => sukuyamiApi.generateScript(chapterId),
-    onSuccess: () => { toast.success('Script generation started'); queryClient.invalidateQueries({ queryKey: ['chapters'] }); },
-    onError: (e: any) => toast.error(`Failed: ${e.message}`),
-  });
-
   const markReadMutation = useMutation({
     mutationFn: (chapterId: string) => sukuyamiApi.markChapterAsRead(chapterId),
     onSuccess: () => { toast.success('Marked as read'); queryClient.invalidateQueries({ queryKey: ['chapters'] }); },
@@ -86,7 +80,6 @@ export default function ChaptersPage() {
               <TableCell>Title</TableCell>
               <TableCell>Read</TableCell>
               <TableCell>Panels</TableCell>
-              <TableCell>Script</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -98,9 +91,6 @@ export default function ChaptersPage() {
                 <TableCell><Chip label={chapter.isRead ? 'Read' : 'Unread'} color={chapter.isRead ? 'success' : 'default'} size="small" /></TableCell>
                 <TableCell>{chapter.panelCount || '-'}</TableCell>
                 <TableCell>
-                  <Chip label={chapter.scriptGenerated ? 'Done' : 'No'} color={chapter.scriptGenerated ? 'success' : 'default'} size="small" />
-                </TableCell>
-                <TableCell>
                   <Box display="flex" gap={0.5} onClick={(e) => e.stopPropagation()}>
                     {!chapter.isRead && (
                       <Tooltip title="Mark as Read">
@@ -109,11 +99,6 @@ export default function ChaptersPage() {
                         </IconButton>
                       </Tooltip>
                     )}
-                    <Tooltip title="Generate Script">
-                      <IconButton size="small" color="primary" onClick={() => scriptMutation.mutate(chapter._id)} disabled={scriptMutation.isPending}>
-                        <Description fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
                   </Box>
                 </TableCell>
               </TableRow>

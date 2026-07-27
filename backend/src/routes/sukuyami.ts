@@ -66,6 +66,29 @@ router.get('/webtoons', authenticate, sukuyamiController.getWebtoons);
 
 /**
  * @swagger
+ * /api/sukuyami/webtoons/popular:
+ *   get:
+ *     summary: Get popular webtoons sorted by popularity
+ *     tags: [Sukuyami]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Maximum number of results
+ *     responses:
+ *       200:
+ *         description: Popular webtoons retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/webtoons/popular', authenticate, sukuyamiController.getPopularWebtoons);
+
+/**
+ * @swagger
  * /api/sukuyami/webtoons/{webtoonId}:
  *   get:
  *     summary: Get webtoon details by ID

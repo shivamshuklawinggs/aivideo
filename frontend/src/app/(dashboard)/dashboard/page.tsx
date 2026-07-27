@@ -47,7 +47,6 @@ export default function DashboardPage() {
   const getActivityIcon = (type: string) => {
     if (type === 'webtoon_added') return <Book color="primary" />;
     if (type === 'chapter_synced') return <Sync color="info" />;
-    if (type === 'script_generated') return <Description color="secondary" />;
     if (type === 'video_generated') return <VideoLibrary color="success" />;
     return <TrendingUp />;
   };
@@ -66,7 +65,6 @@ export default function DashboardPage() {
         {[
           { label: 'Total Webtoons', value: s.totalWebtoons, color: 'primary.main', icon: <Book /> },
           { label: 'Total Chapters', value: s.totalChapters, color: 'info.main', icon: <VideoLibrary /> },
-          { label: 'Generated Scripts', value: s.totalScripts, color: 'secondary.main', icon: <Description /> },
           { label: 'Generated Videos', value: s.totalVideos, color: 'success.main', icon: <VideoLibrary /> },
         ].map((item) => (
           <Grid item xs={12} sm={6} md={3} key={item.label}>

@@ -12,7 +12,9 @@ import errorHandler from './middlewares/errorHandler';
 import { swaggerUi, specs } from './config/swagger';
 import AuthRoutes from './routes/auth';
 import SukuyamiRoutes from './routes/sukuyami';
-import VoiceRoutes from './routes/voice';
+import VoiceRecordingRoutes from './routes/voiceRecording';
+import UploadRoutes from './routes/upload';
+import PipelineRoutes from './routes/pipeline';
 import { initializeRabbitMQSystem } from './config/rabbitmq';
 
 dotenv.config();
@@ -58,7 +60,9 @@ app.get('/', (_req, res) => {
 // API Routes
 app.use('/api/auth', AuthRoutes);
 app.use('/api/sukuyami', SukuyamiRoutes);
-app.use('/api/voice', VoiceRoutes);
+app.use('/api/voice-recordings', VoiceRecordingRoutes);
+app.use('/api', UploadRoutes);
+app.use('/api/pipeline', PipelineRoutes);
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {

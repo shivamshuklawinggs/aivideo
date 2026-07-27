@@ -1,94 +1,124 @@
 services:
-  # redis:
-  #   image: redis:latest
-  #   container_name: redis
-  #   command:
-  #     - redis-server
-  #     - --bind
-  #     - 0.0.0.0
-  #     - --requirepass
-  #     - redis123
-  #   ports:
-  #     - "6379:6379"
-  #   restart: unless-stopped
-  #   volumes:
-  #     - redis_data:/data
-
-  # rabbitmq:
-  #   image: rabbitmq:3-management
-  #   container_name: rabbitmq
-  #   environment:
-  #     RABBITMQ_DEFAULT_USER: admin
-  #     RABBITMQ_DEFAULT_PASS: admin123
-  #   ports:
-  #     - "5672:5672"
-  #     - "15672:15672"
-  #   restart: unless-stopped
-  #   volumes:
-  #     - rabbitmq_data:/var/lib/rabbitmq
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
+  # ─── MongoDB ───────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    container_name: mongodb
     environment:
-      OLLAMA_HOST: 0.0.0.0
+      MONGO_INITDB_DATABASE: webtoon_explainer
     ports:
-      - "11434:11434"
+      - "27017:27017"
     restart: unless-stopped
     volumes:
-      - ollama_data:/root/.ollama
+      - mongodb_data:/data/db
     networks:
       - ai-network
+
+  # ─── Redis ─────────────────────────────────────────────────────────
+  redis:
+    image: redis:latest
+    container_name: redis
+    command:
+      - redis-server
+      - --bind
+      - 0.0.0.0
+      - --requirepass
+      - redis123
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai-network
+
+  # ─── RabbitMQ ──────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: unless-stopped
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - ai-network
+
+  # ─── MinIO (S3 Storage) ────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    restart: unless-stopped
+    volumes:
+      - minio_data:/data
+    networks:
+      - ai-network
+
+  # ─── Suwayomi (Manga Source) ───────────────────────────────────────
   suwayomi:
     image: ghcr.io/suwayomi/suwayomi-server:preview
     container_name: suwayomi
-    # user: 1000:1000
     environment:
-      - TZ=Etc/UTC # Use TZ database name from https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-      # Comment these out if you do not use the flaresolverr container at the bottom of this file
+      - TZ=Etc/UTC
       - FLARESOLVERR_ENABLED=true
       - FLARESOLVERR_URL=http://flaresolverr:8191
-#  #################################################################################################
-#
-#    !!! IMPORTANT !!!
-#     - server settings can be changed during runtime in the WebUI
-#     - providing an environment variable will OVERWRITE the current setting value when starting the container
-#
-#  #################################################################################################
-#
-#    example for setting env vars:
-#
-#      - BIND_IP=0.0.0.0
-#      - BIND_PORT=4567
-#      - SOCKS_PROXY_ENABLED=false
-#      - DOWNLOAD_AS_CBZ=true
-#      - AUTH_MODE=basic_auth
-#      - AUTH_USERNAME=manga
-#      - AUTH_PASSWORD=hello123
-#      - EXTENSION_STORES=["https://raw.githubusercontent.com/MY_ACCOUNT/MY_EXTENSION_STORE/repo/index.min.json", "https://raw.githubusercontent.com/MY_ACCOUNT_2/MY_REPO_2/repo/index.pb"]
     volumes:
       - suwayomi_data:/home/suwayomi/.local/share/Tachidesk
     ports:
       - "4567:4567"
     restart: on-failure:3
+    depends_on:
+      - flaresolverr
+    networks:
+      - ai-network
 
+  # ─── FlareSolverr (Cloudflare Bypass) ──────────────────────────────
   flaresolverr:
     image: ghcr.io/thephaseless/byparr:latest
     container_name: flaresolverr
     init: true
     environment:
-      - TZ=Etc/UTC # Use TZ database name from https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+      - TZ=Etc/UTC
     restart: unless-stopped
-  kokoro:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu
-    container_name: kokoro
-    ports:
-      - "8880:8880"
+    networks:
+      - ai-network
+
+  # ─── Ollama (Local AI) ─────────────────────────────────────────────
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   ports:
+  #     - "11434:11434"
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   networks:
+  #     - ai-network
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
 volumes:
+  mongodb_data:
   redis_data:
   rabbitmq_data:
-  ollama_data:
+  minio_data:
   suwayomi_data:
+  ollama_data:
 
 networks:
   ai-network:
