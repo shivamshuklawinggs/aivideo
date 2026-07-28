@@ -16,18 +16,32 @@ import RemotionPlayer from './RemotionPlayer';
 import SubtitleEditor from './SubtitleEditor';
 import VoiceRecorder from './VoiceRecorder';
 import ExportPanel from './ExportPanel';
-import { Scene, AudioClip, Subtitle, TransitionEffect, FPS } from './types';
+import { Scene, AudioClip, Subtitle, TransitionEffect, FPS, DEFAULT_SUBTITLE_STYLE } from './types';
 
 interface VideoEditorProps {
   pages: string[];
   title?: string;
   chapterNumber?: number | string;
+  audioUrl?: string;
+  subtitleUrl?: string;
+  videoUrl?: string;
+  timeline?: Array<{
+    panelIndex: number;
+    startTime: number;
+    endTime: number;
+    duration: number;
+    narrationSegment: string;
+  }>;
 }
 
 export default function VideoEditor({
   pages,
   title,
   chapterNumber,
+  audioUrl,
+  subtitleUrl,
+  videoUrl,
+  timeline,
 }: VideoEditorProps) {
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [selectedSceneIndex, setSelectedSceneIndex] = useState(0);
@@ -38,20 +52,52 @@ export default function VideoEditor({
 
   useEffect(() => {
     if (pages.length) {
-      const initialScenes: Scene[] = pages.map((url, i) => ({
-        id: generateId(),
-        imageUrl: url,
-        duration: 3,
-        effect: 'none' as TransitionEffect,
-        subtitles: [],
-        audioClips: [],
-      }));
+      const initialScenes: Scene[] = pages.map((url, i) => {
+        const timelineItem = timeline?.find((t) => t.panelIndex === i);
+        const subtitle: Subtitle | undefined = timelineItem
+          ? {
+              id: generateId(),
+              text: timelineItem.narrationSegment || `Scene ${i + 1}`,
+              startTime: 0,
+              endTime: timelineItem.duration || 3,
+              style: DEFAULT_SUBTITLE_STYLE,
+            }
+          : undefined;
+
+        const scene: Scene = {
+          id: generateId(),
+          imageUrl: url,
+          duration: timelineItem?.duration || 3,
+          effect: 'none' as TransitionEffect,
+          subtitles: subtitle ? [subtitle] : [],
+          audioClips: [],
+        };
+
+        return scene;
+      });
+
+      if (audioUrl) {
+        initialScenes.forEach((scene, i) => {
+          const start = initialScenes.slice(0, i).reduce((sum, s) => sum + s.duration, 0);
+          const audio: AudioClip = {
+            id: generateId(),
+            url: audioUrl,
+            name: 'Generated narration',
+            duration: scene.duration,
+            startTime: start,
+            volume: 1,
+            type: 'voiceover',
+          };
+          scene.audioClips.push(audio);
+        });
+      }
+
       setScenes(initialScenes);
       setSelectedSceneIndex(0);
       setCurrentTime(0);
       setActiveTab(0);
     }
-  }, [pages]);
+  }, [pages, audioUrl, timeline]);
 
   const totalDuration = scenes.reduce((sum, s) => sum + s.duration, 0);
 
@@ -256,7 +302,13 @@ export default function VideoEditor({
                 )}
 
                 {activeTab === 3 && (
-                  <ExportPanel scenes={scenes} title={title} />
+                  <ExportPanel
+                    scenes={scenes}
+                    title={title}
+                    audioUrl={audioUrl}
+                    subtitleUrl={subtitleUrl}
+                    videoUrl={videoUrl}
+                  />
                 )}
               </Box>
             </Grid>

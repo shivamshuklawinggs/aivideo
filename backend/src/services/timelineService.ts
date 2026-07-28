@@ -33,7 +33,7 @@ class TimelineService {
   /**
    * Calculate timeline based on narration duration per panel
    */
-  async generateTimeline(chapterId: string, audioDurations?: number[]): Promise<TimelineEntry[]> {
+  async generateTimeline(chapterId: number, audioDurations?: number[]): Promise<TimelineEntry[]> {
     const analysis = await ChapterAnalysis.findOne({ chapterId });
     if (!analysis || analysis.panels.length === 0) {
       throw new Error(`No analysis found for chapter ${chapterId}`);
@@ -71,9 +71,15 @@ class TimelineService {
     }
 
     // Save timeline to database
-    analysis.timeline = timeline;
-    analysis.totalDuration = currentTime;
-    await analysis.save();
+    await ChapterAnalysis.findOneAndUpdate(
+      { chapterId },
+      {
+        $set: {
+          timeline,
+          totalDuration: currentTime,
+        },
+      }
+    );
 
     logger.info(`Timeline generated for chapter ${chapterId}: ${panelCount} panels, ${currentTime.toFixed(1)}s total`);
     return timeline;
@@ -82,13 +88,13 @@ class TimelineService {
   /**
    * Export timeline as JSON file
    */
-  async exportTimelineJSON(chapterId: string): Promise<string> {
+  async exportTimelineJSON(chapterId: number): Promise<string> {
     const analysis = await ChapterAnalysis.findOne({ chapterId });
     if (!analysis || analysis.timeline.length === 0) {
       throw new Error(`No timeline found for chapter ${chapterId}`);
     }
 
-    const chapterDir = path.join(this.outputDir, 'chapters', chapterId);
+    const chapterDir = path.join(this.outputDir, 'chapters', String(chapterId));
     await fs.ensureDir(chapterDir);
 
     const timelineData = {
@@ -114,9 +120,9 @@ class TimelineService {
   /**
    * Generate SRT subtitle file
    */
-  async generateSRT(chapterId: string): Promise<string> {
+  async generateSRT(chapterId: number): Promise<string> {
     const subtitles = await this.getSubtitleEntries(chapterId);
-    const chapterDir = path.join(this.outputDir, 'chapters', chapterId);
+    const chapterDir = path.join(this.outputDir, 'chapters', String(chapterId));
     await fs.ensureDir(chapterDir);
 
     let srt = '';
@@ -136,9 +142,9 @@ class TimelineService {
   /**
    * Generate VTT subtitle file
    */
-  async generateVTT(chapterId: string): Promise<string> {
+  async generateVTT(chapterId: number): Promise<string> {
     const subtitles = await this.getSubtitleEntries(chapterId);
-    const chapterDir = path.join(this.outputDir, 'chapters', chapterId);
+    const chapterDir = path.join(this.outputDir, 'chapters', String(chapterId));
     await fs.ensureDir(chapterDir);
 
     let vtt = 'WEBVTT\n\n';
@@ -158,7 +164,7 @@ class TimelineService {
   /**
    * Get subtitle entries from timeline
    */
-  private async getSubtitleEntries(chapterId: string): Promise<SubtitleEntry[]> {
+  private async getSubtitleEntries(chapterId: number): Promise<SubtitleEntry[]> {
     const analysis = await ChapterAnalysis.findOne({ chapterId });
     if (!analysis || analysis.timeline.length === 0) {
       throw new Error(`No timeline found for chapter ${chapterId}`);

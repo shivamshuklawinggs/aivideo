@@ -50,7 +50,7 @@ class VideoService {
   /**
    * Generate video from chapter analysis
    */
-  async generateVideo(chapterId: string, options: VideoOptions = {}): Promise<VideoResult> {
+  async generateVideo(chapterId: number, options: VideoOptions = {}): Promise<VideoResult> {
     const analysis = await ChapterAnalysis.findOne({ chapterId });
     if (!analysis || analysis.timeline.length === 0) {
       throw new Error(`No timeline found for chapter ${chapterId}. Generate timeline first.`);
@@ -69,8 +69,8 @@ class VideoService {
       bgMusicVolume = 0.15,
     } = options;
 
-    const chapterDir = path.join(this.outputDir, 'chapters', chapterId);
-    const tempChapterDir = path.join(this.tempDir, chapterId);
+    const chapterDir = path.join(this.outputDir, 'chapters', String(chapterId));
+    const tempChapterDir = path.join(this.tempDir, String(chapterId));
     await fs.ensureDir(chapterDir);
     await fs.ensureDir(tempChapterDir);
 

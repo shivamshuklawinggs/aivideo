@@ -1,6 +1,6 @@
 import axios from 'axios';
 import logger from '../config/logger';
-import aiService from './aiService';
+import aiService, { OCRResult, VisionAnalysisResult } from './aiService';
 import socketService from './socketService';
 import SukuyamiGraphQLService from './sukuyamiGraphQLService';
 import ChapterAnalysis, { IPanelAnalysis } from '../models/ChapterAnalysis';
@@ -31,7 +31,7 @@ class PanelAnalysisService {
   /**
    * Fetch all panel image URLs for a chapter
    */
-  async fetchPanelUrls(chapterId: string): Promise<string[]> {
+  async fetchPanelUrls(chapterId: number | string): Promise<string[]> {
     try {
       const pages = await graphqlService.getChapterPages(chapterId);
       logger.info(`Fetched ${pages.length} panel URLs for chapter ${chapterId}`);
@@ -88,7 +88,7 @@ class PanelAnalysisService {
   async analyzeSinglePanel(
     imageUrl: string,
     panelIndex: number,
-    chapterId?: string,
+    chapterId?: number | string,
     jobId?: string
   ): Promise<IPanelAnalysis> {
     const ctx = { chapterId, jobId, panelIndex };
@@ -171,8 +171,8 @@ class PanelAnalysisService {
    * Analyze all panels in a chapter with batching and progress tracking
    */
   async analyzeChapter(
-    chapterId: string,
-    mangaId: string,
+    chapterId: number,
+    mangaId: number,
     jobId?: string,
     onProgress?: (progress: AnalysisProgress) => void
   ): Promise<IPanelAnalysis[]> {
@@ -187,21 +187,21 @@ class PanelAnalysisService {
 
     logger.info(`Starting analysis of ${total} panels for chapter ${chapterId}`);
 
-    // Get or create chapter analysis document
-    let analysis = await ChapterAnalysis.findOne({ chapterId });
-    if (!analysis) {
-      analysis = new ChapterAnalysis({
-        chapterId,
-        mangaId,
-        panelCount: total,
-        status: 'analyzing',
-      });
-      await analysis.save();
-    } else {
-      analysis.status = 'analyzing';
-      analysis.panelCount = total;
-      await analysis.save();
-    }
+    // Upsert chapter analysis document
+    await ChapterAnalysis.findOneAndUpdate(
+      { chapterId },
+      {
+        $setOnInsert: {
+          chapterId,
+          mangaId,
+        },
+        $set: {
+          panelCount: total,
+          status: 'analyzing',
+        },
+      },
+      { new: true, upsert: true }
+    );
 
     const results: IPanelAnalysis[] = [];
     let completed = 0;
@@ -217,20 +217,26 @@ class PanelAnalysisService {
       timestamp: new Date().toISOString(),
     });
 
-    // Process in batches
+    // Step 1: Download all panels and extract OCR in batches
+    const imageBase64s: (string | undefined)[] = new Array(total);
+    const ocrResults: (OCRResult | undefined)[] = new Array(total);
+
     for (let i = 0; i < total; i += this.batchSize) {
       const batch = panelUrls.slice(i, i + this.batchSize);
-      const batchPromises = batch.map((url, batchIdx) => {
+      const batchPromises = batch.map(async (url, batchIdx) => {
         const panelIndex = i + batchIdx;
-        return this.analyzeSinglePanel(url, panelIndex, chapterId, jobId);
+        const base64 = await this.downloadPanelAsBase64(url);
+        const ocr = await aiService.extractText(base64, panelIndex, { chapterId, jobId, panelIndex, step: 'ocr' });
+        return { panelIndex, base64, ocr };
       });
 
-      // Process batch with concurrency limit
       const batchResults = await this.processBatchWithLimit(batchPromises, this.parallelRequests);
-      results.push(...batchResults);
-      completed += batchResults.length;
+      for (const r of batchResults) {
+        imageBase64s[r.panelIndex] = r.base64;
+        ocrResults[r.panelIndex] = r.ocr;
+        completed++;
+      }
 
-      // Report progress
       const progress: AnalysisProgress = {
         total,
         completed,
@@ -245,30 +251,80 @@ class PanelAnalysisService {
         chapterId,
         jobId,
         status: 'in_progress',
+        step: 'ocr',
         timestamp: new Date().toISOString(),
       });
 
       // Update job progress if tracking
       if (jobId) {
         await Job.findByIdAndUpdate(jobId, {
-          progress: Math.round((completed / total) * 50), // Analysis is 50% of total pipeline
+          progress: Math.round((completed / total) * 25),
           'steps.$[elem].progress': progress.percentage,
         }, {
           arrayFilters: [{ 'elem.step': 'vision_analysis' }],
         });
       }
 
-      logger.info(`Panel analysis progress: ${completed}/${total} (${progress.percentage}%)`);
+      logger.info(`OCR progress: ${completed}/${total} (${progress.percentage}%)`);
+    }
+
+    // Step 2: Analyze all panels together for whole-chapter vision
+    const allImages = imageBase64s.filter((b): b is string => typeof b === 'string');
+    let visionResults: VisionAnalysisResult[] = [];
+    try {
+      socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:progress', {
+        total,
+        completed,
+        current: total,
+        percentage: 50,
+        chapterId,
+        jobId,
+        status: 'in_progress',
+        step: 'vision_analysis',
+        message: 'Uploading all panels for whole-chapter vision analysis',
+        timestamp: new Date().toISOString(),
+      });
+      visionResults = await aiService.analyzeAllPanels(allImages, { chapterId, jobId, step: 'vision_analysis' });
+      completed = total;
+    } catch (visionError: any) {
+      logger.error('Whole-chapter vision analysis failed, falling back to per-panel:', visionError.message);
+      // Fallback: process each panel individually
+      const fallbackPromises = panelUrls.map(async (url, panelIndex) => {
+        const base64 = imageBase64s[panelIndex] || await this.downloadPanelAsBase64(url);
+        const vision = await aiService.analyzePanel(base64, panelIndex, { chapterId, jobId, panelIndex, step: 'vision_analysis' });
+        return { panelIndex, vision };
+      });
+      const fallbackResults = await this.processBatchWithLimit(fallbackPromises, this.parallelRequests);
+      for (const r of fallbackResults) {
+        visionResults[r.panelIndex] = r.vision;
+      }
+    }
+
+    // Combine OCR + vision into final panel analyses
+    for (let i = 0; i < total; i++) {
+      results.push({
+        panelIndex: i,
+        imageUrl: panelUrls[i],
+        ocr: ocrResults[i]!,
+        vision: visionResults[i],
+      });
     }
 
     // Save results to database
-    analysis.panels = results;
-    analysis.combinedText = results
+    const combinedText = results
       .map((r) => r.ocr.rawText)
       .filter(Boolean)
       .join('\n\n');
-    analysis.status = 'analyzed';
-    await analysis.save();
+    await ChapterAnalysis.findOneAndUpdate(
+      { chapterId },
+      {
+        $set: {
+          panels: results,
+          combinedText,
+          status: 'analyzed',
+        },
+      }
+    );
 
     socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:progress', {
       chapterId,
@@ -293,11 +349,10 @@ class PanelAnalysisService {
       timestamp: new Date().toISOString(),
     });
 
-    const analysis = await ChapterAnalysis.findOne({ chapterId });
-    if (analysis) {
-      analysis.status = 'failed';
-      await analysis.save();
-    }
+    await ChapterAnalysis.findOneAndUpdate(
+      { chapterId },
+      { $set: { status: 'failed' } }
+    );
 
     throw error;
   }

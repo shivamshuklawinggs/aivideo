@@ -94,7 +94,7 @@ export const pipelineApi = {
   // Generate story from analyzed panels
   generateStory: async (chapterId: string, mangaId?: string) => {
     const response = await apiClient.post('/pipeline/chapter/story', { chapterId, mangaId });
-    return response.data?.data as { jobId: string; story: any; storyJson: any };
+    return response.data?.data as { jobId: string; status: string };
   },
 
   // Generate narration (voice + timeline + subtitles)
@@ -106,6 +106,12 @@ export const pipelineApi = {
   // Generate video
   generateVideo: async (chapterId: string, mangaId?: string, options?: VideoOptions) => {
     const response = await apiClient.post('/pipeline/chapter/video', { chapterId, mangaId, options });
+    return response.data?.data as { jobId: string; status: string };
+  },
+
+  // Run full pipeline (analyze → story → narration → video)
+  runFullPipeline: async (chapterId: string, mangaId?: string, options?: VideoOptions, force?: boolean) => {
+    const response = await apiClient.post('/pipeline/chapter/full', { chapterId, mangaId, options, force });
     return response.data?.data as { jobId: string; status: string };
   },
 

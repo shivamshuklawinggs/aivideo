@@ -26,7 +26,6 @@ export default function ChapterDetailPage() {
   const [pipelineStatus, setPipelineStatus] = useState<string>('idle');
   const [pipelineMode, setPipelineMode] = useState<'manual' | 'auto'>('manual');
   const [currentJob, setCurrentJob] = useState<JobStatus | null>(null);
-  const [storyData, setStoryData] = useState<any>(null);
 
   const socketState = usePipelineSocket(chapterId, currentJob?.jobId);
 
@@ -63,28 +62,15 @@ export default function ChapterDetailPage() {
       setPipelineStatus('analyzing');
       setActiveStep(0);
       const { jobId } = await pipelineApi.analyzeChapter(chapterId, mangaId);
-      toast.info('Analysis started...');
-
-      const result = await pipelineApi.pollJob(jobId, (job) => {
-        setCurrentJob(job);
-      });
-
-      if (result.status === 'completed') {
-        toast.success('Panel analysis complete!');
-        setActiveStep(1);
-        setPipelineStatus('analyzed');
-        refetchResult();
-      } else {
-        toast.error(`Analysis failed: ${result.error}`);
-        setPipelineStatus('error');
-      }
+      setCurrentJob({ jobId, chapterId, type: 'analyze', status: 'queued', progress: 0, steps: [] } as any);
+      toast.info('Analysis queued in background...');
     } catch (err: any) {
       toast.error(err.message);
       setPipelineStatus('error');
     }
-  }, [chapterId, mangaId, refetchResult]);
+  }, [chapterId, mangaId]);
 
-  // Override status when Socket.IO reports completion or failure in real time
+  // Track Socket.IO real-time status and step progress
   useEffect(() => {
     if (socketState.status === 'completed' && pipelineStatus !== 'complete') {
       setPipelineStatus('complete');
@@ -94,24 +80,30 @@ export default function ChapterDetailPage() {
     } else if (socketState.status === 'error' && !pipelineStatus.includes('error')) {
       setPipelineStatus('error');
       toast.error('Pipeline reported an error. Check live log.');
+    } else if (socketState.status === 'processing') {
+      const stepMap: Record<string, number> = {
+        vision_analysis: 0,
+        story_generation: 1,
+        narration: 2,
+        video_render: 3,
+      };
+      const stepIndex = stepMap[socketState.step] ?? activeStep;
+      setActiveStep(Math.max(activeStep, stepIndex));
     }
-  }, [socketState.status, pipelineStatus, refetchResult]);
+  }, [socketState.status, socketState.step, pipelineStatus, activeStep, refetchResult]);
 
   // Pipeline Step 2: Story
   const handleStory = useCallback(async () => {
     try {
       setPipelineStatus('generating_story');
-      const { story } = await pipelineApi.generateStory(chapterId, mangaId);
-      setStoryData(story);
-      toast.success('Story generated!');
-      setActiveStep(2);
-      setPipelineStatus('story_ready');
-      refetchResult();
+      const { jobId } = await pipelineApi.generateStory(chapterId, mangaId);
+      setCurrentJob({ jobId, chapterId, type: 'story', status: 'queued', progress: 0, steps: [] } as any);
+      toast.info('Story generation queued...');
     } catch (err: any) {
       toast.error(err.message);
       setPipelineStatus('error');
     }
-  }, [chapterId, mangaId, refetchResult]);
+  }, [chapterId, mangaId]);
 
   // Pipeline Step 3: Narration
   const handleNarration = useCallback(async () => {
@@ -119,26 +111,13 @@ export default function ChapterDetailPage() {
       setPipelineStatus('generating_narration');
       setActiveStep(2);
       const { jobId } = await pipelineApi.generateNarration(chapterId, mangaId);
-      toast.info('Generating narration...');
-
-      const result = await pipelineApi.pollJob(jobId, (job) => {
-        setCurrentJob(job);
-      });
-
-      if (result.status === 'completed') {
-        toast.success('Narration & subtitles ready!');
-        setActiveStep(3);
-        setPipelineStatus('narrated');
-        refetchResult();
-      } else {
-        toast.error(`Narration failed: ${result.error}`);
-        setPipelineStatus('error');
-      }
+      setCurrentJob({ jobId, chapterId, type: 'narration', status: 'queued', progress: 0, steps: [] } as any);
+      toast.info('Narration queued in background...');
     } catch (err: any) {
       toast.error(err.message);
       setPipelineStatus('error');
     }
-  }, [chapterId, mangaId, refetchResult]);
+  }, [chapterId, mangaId]);
 
   // Pipeline Step 4: Video
   const handleVideo = useCallback(async () => {
@@ -151,34 +130,32 @@ export default function ChapterDetailPage() {
         effects: { zoom: true, fade: true },
         subtitles: true,
       });
-      toast.info('Generating video...');
-
-      const result = await pipelineApi.pollJob(jobId, (job) => {
-        setCurrentJob(job);
-      });
-
-      if (result.status === 'completed') {
-        toast.success('Video generated!');
-        setActiveStep(4);
-        setPipelineStatus('complete');
-        refetchResult();
-      } else {
-        toast.error(`Video generation failed: ${result.error}`);
-        setPipelineStatus('error');
-      }
+      setCurrentJob({ jobId, chapterId, type: 'video', status: 'queued', progress: 0, steps: [] } as any);
+      toast.info('Video render queued in background...');
     } catch (err: any) {
       toast.error(err.message);
       setPipelineStatus('error');
     }
-  }, [chapterId, mangaId, refetchResult]);
+  }, [chapterId, mangaId]);
 
   // Full auto pipeline
   const handleFullPipeline = useCallback(async () => {
-    await handleAnalyze();
-    await handleStory();
-    await handleNarration();
-    await handleVideo();
-  }, [handleAnalyze, handleStory, handleNarration, handleVideo]);
+    try {
+      setPipelineStatus('analyzing');
+      setActiveStep(0);
+      const { jobId } = await pipelineApi.runFullPipeline(chapterId, mangaId, {
+        format: 'mp4',
+        quality: 'medium',
+        effects: { zoom: true, fade: true },
+        subtitles: true,
+      });
+      setCurrentJob({ jobId, chapterId, type: 'full_pipeline', status: 'queued', progress: 0, steps: [] } as any);
+      toast.info('Full pipeline queued in background. Watch live progress.');
+    } catch (err: any) {
+      toast.error(err.message);
+      setPipelineStatus('error');
+    }
+  }, [chapterId, mangaId]);
 
   if (isLoading) return <Box sx={{ width: '100%', mt: 2 }}><LinearProgress /></Box>;
   if (error) return <Box sx={{ p: 3 }}><Typography color="error">Failed to load chapter</Typography></Box>;
@@ -241,18 +218,18 @@ export default function ChapterDetailPage() {
           )}
 
           {/* Story result */}
-          {(storyData || chapterResult?.story?.narrative) && (
+          {chapterResult?.story?.narrative && (
             <Card sx={{ mb: 3 }}>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
-                  {storyData?.title || chapterResult?.story?.title || 'Generated Story'}
+                  {chapterResult?.story?.title || 'Generated Story'}
                 </Typography>
                 <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                  {storyData?.summary || chapterResult?.story?.summary}
+                  {chapterResult?.story?.summary}
                 </Typography>
                 <Divider sx={{ my: 1 }} />
                 <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', mt: 2 }}>
-                  {storyData?.narrative || chapterResult?.story?.narrative}
+                  {chapterResult?.story?.narrative}
                 </Typography>
               </CardContent>
             </Card>
@@ -299,6 +276,25 @@ export default function ChapterDetailPage() {
                   <Typography variant="caption" color="textSecondary">
                     {displayStep.replace(/_/g, ' ')} — {displayProgress}% {socketState.connected ? '(live)' : '(reconnecting)'}
                   </Typography>
+                </Box>
+              )}
+
+              {Object.keys(socketState.steps).length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>Step status</Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    {Object.entries(socketState.steps).map(([step, info]) => {
+                      const color = info.status === 'completed' ? 'success' : info.status === 'error' ? 'error' : info.status === 'processing' ? 'primary' : 'default';
+                      return (
+                        <Box key={step} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Typography variant="caption" sx={{ textTransform: 'capitalize' }}>
+                            {step.replace(/_/g, ' ')}
+                          </Typography>
+                          <Chip size="small" label={`${info.status} ${Math.round(info.progress)}%`} color={color} />
+                        </Box>
+                      );
+                    })}
+                  </Box>
                 </Box>
               )}
 
@@ -405,6 +401,10 @@ export default function ChapterDetailPage() {
         pages={pagesData?.pages ?? []}
         title={chapter.title}
         chapterNumber={chapter.chapterNumber}
+        audioUrl={chapterResult?.files?.audio}
+        subtitleUrl={chapterResult?.files?.subtitle}
+        videoUrl={chapterResult?.files?.video}
+        timeline={chapterResult?.timeline}
       />
     </Box>
   );

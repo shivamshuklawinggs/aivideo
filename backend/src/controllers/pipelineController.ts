@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import logger from '../config/logger';
-import Job, { IJob, JobType, PipelineStep } from '../models/Job';
+import Job, { IJob, JobType, PipelineStep, JobStatus } from '../models/Job';
 import ChapterAnalysis from '../models/ChapterAnalysis';
 import panelAnalysisService from '../services/panelAnalysisService';
 import storyService from '../services/storyService';
@@ -12,6 +12,7 @@ import SukuyamiGraphQLService from '../services/sukuyamiGraphQLService';
 import socketService from '../services/socketService';
 import { rabbitMQService } from '../config/rabbitmq/rabbitmq.service';
 import { EXCHANGE_NAMES, ROUTING_KEYS } from '../config/rabbitmq/constants';
+import { toNumericId } from '../utils/numericId';
 
 class PipelineController {
 
@@ -21,28 +22,39 @@ class PipelineController {
    */
   async analyzeChapter(req: Request, res: Response, next: NextFunction) {
     try {
-      const { chapterId, mangaId } = req.body;
+      const rawChapterId = req.body.chapterId;
+      const rawMangaId = req.body.mangaId;
 
-      if (!chapterId || !mangaId) {
+      if (!rawChapterId || !rawMangaId) {
         return res.status(400).json({
           success: false,
           message: 'chapterId and mangaId are required',
         });
       }
 
-      // Create job
-      const job = new Job({
-        chapterId,
-        mangaId,
-        type: 'analyze' as JobType,
-        status: 'queued',
-        steps: [
-          { step: 'fetch_panels', status: 'queued', progress: 0 },
-          { step: 'ocr', status: 'queued', progress: 0 },
-          { step: 'vision_analysis', status: 'queued', progress: 0 },
-        ],
-      });
-      await job.save();
+      const chapterId = toNumericId(rawChapterId);
+      const mangaId = toNumericId(rawMangaId);
+
+      // Upsert job with findOneAndUpdate to avoid duplicate documents
+      const job = await Job.findOneAndUpdate(
+        { chapterId, type: 'analyze' },
+        {
+          $setOnInsert: {
+            mangaId,
+            chapterId,
+            type: 'analyze',
+          },
+          $set: {
+            status: 'queued',
+            steps: [
+              { step: 'fetch_panels', status: 'queued', progress: 0 },
+              { step: 'ocr', status: 'queued', progress: 0 },
+              { step: 'vision_analysis', status: 'queued', progress: 0 },
+            ],
+          },
+        },
+        { new: true, upsert: true }
+      );
 
       // Publish to queue for async processing
       const published = await rabbitMQService.produceMessage(
@@ -76,14 +88,17 @@ class PipelineController {
    */
   async generateStory(req: Request, res: Response, next: NextFunction) {
     try {
-      const { chapterId, mangaId } = req.body;
+      const rawChapterId = req.body.chapterId;
+      const rawMangaId = req.body.mangaId;
 
-      if (!chapterId) {
+      if (!rawChapterId) {
         return res.status(400).json({
           success: false,
           message: 'chapterId is required',
         });
       }
+
+      const chapterId = toNumericId(rawChapterId);
 
       // Check if analysis exists
       const analysis = await ChapterAnalysis.findOne({ chapterId });
@@ -94,47 +109,47 @@ class PipelineController {
         });
       }
 
-      // Create job
-      const job = new Job({
-        chapterId,
-        mangaId: mangaId || analysis.mangaId,
-        type: 'story' as JobType,
-        status: 'processing',
-        steps: [
-          { step: 'story_generation', status: 'processing', progress: 0, startedAt: new Date() },
-        ],
-        startedAt: new Date(),
-      });
-      await job.save();
+      const resolvedMangaId = toNumericId(rawMangaId || analysis.mangaId);
 
-      // Process synchronously for story (fast enough)
-      try {
-        const story = await storyService.generateStory(chapterId);
+      // Upsert job
+      const job = await Job.findOneAndUpdate(
+        { chapterId, type: 'story' },
+        {
+          $setOnInsert: {
+            chapterId,
+            mangaId: resolvedMangaId,
+            type: 'story' as JobType,
+          },
+          $set: {
+            status: 'queued',
+            steps: [
+              { step: 'story_generation', status: 'queued', progress: 0 },
+            ],
+          },
+        },
+        { new: true, upsert: true }
+      );
 
-        job.status = 'completed';
-        job.progress = 100;
-        job.completedAt = new Date();
-        job.steps[0].status = 'completed';
-        job.steps[0].progress = 100;
-        job.steps[0].completedAt = new Date();
-        job.result = { storyFile: `chapters/${chapterId}/story.json` };
-        await job.save();
+      // Publish to queue for async processing
+      const published = await rabbitMQService.produceMessage(
+        EXCHANGE_NAMES.AI_VIDEO,
+        ROUTING_KEYS.AI_VIDEO.GENERATE_SCRIPT,
+        { jobId: job._id.toString(), chapterId, mangaId: resolvedMangaId, type: 'story' }
+      );
 
-        // Export story JSON
-        const storyJson = await storyService.exportStoryJSON(chapterId);
-
-        res.json({
-          success: true,
-          data: { jobId: job._id, story, storyJson: JSON.parse(storyJson) },
-        });
-      } catch (err: any) {
-        job.status = 'failed';
-        job.error = err.message;
-        job.steps[0].status = 'failed';
-        job.steps[0].error = err.message;
-        await job.save();
-        throw err;
+      if (!published) {
+        // If queue fails, process synchronously
+        logger.warn('Queue publish failed, processing story synchronously');
+        this.processStory(job._id.toString(), chapterId, resolvedMangaId).catch(err =>
+          logger.error('Sync story generation failed:', err)
+        );
       }
+
+      res.status(202).json({
+        success: true,
+        message: 'Story generation job queued',
+        data: { jobId: job._id, status: job.status },
+      });
     } catch (error) {
       logger.error('Generate story failed:', error);
       return next(error);
@@ -147,14 +162,17 @@ class PipelineController {
    */
   async generateNarration(req: Request, res: Response, next: NextFunction) {
     try {
-      const { chapterId, mangaId } = req.body;
+      const rawChapterId = req.body.chapterId;
+      const rawMangaId = req.body.mangaId;
 
-      if (!chapterId) {
+      if (!rawChapterId) {
         return res.status(400).json({
           success: false,
           message: 'chapterId is required',
         });
       }
+
+      const chapterId = toNumericId(rawChapterId);
 
       const analysis = await ChapterAnalysis.findOne({ chapterId });
       if (!analysis || !analysis.story.narrationScript) {
@@ -164,25 +182,34 @@ class PipelineController {
         });
       }
 
-      // Create job
-      const job = new Job({
-        chapterId,
-        mangaId: mangaId || analysis.mangaId,
-        type: 'narration' as JobType,
-        status: 'queued',
-        steps: [
-          { step: 'voice_generation', status: 'queued', progress: 0 },
-          { step: 'timeline', status: 'queued', progress: 0 },
-          { step: 'subtitles', status: 'queued', progress: 0 },
-        ],
-      });
-      await job.save();
+      const resolvedMangaId = toNumericId(rawMangaId || analysis.mangaId);
+
+      // Upsert job
+      const job = await Job.findOneAndUpdate(
+        { chapterId, type: 'narration' },
+        {
+          $setOnInsert: {
+            chapterId,
+            mangaId: resolvedMangaId,
+            type: 'narration' as JobType,
+          },
+          $set: {
+            status: 'queued',
+            steps: [
+              { step: 'voice_generation', status: 'queued', progress: 0 },
+              { step: 'timeline', status: 'queued', progress: 0 },
+              { step: 'subtitles', status: 'queued', progress: 0 },
+            ],
+          },
+        },
+        { new: true, upsert: true }
+      );
 
       // Publish to queue
       const published = await rabbitMQService.produceMessage(
         EXCHANGE_NAMES.AI_VIDEO,
         ROUTING_KEYS.AI_VIDEO.GENERATE_VOICE,
-        { jobId: job._id.toString(), chapterId, mangaId: mangaId || analysis.mangaId, type: 'narration' }
+        { jobId: job._id.toString(), chapterId, mangaId: resolvedMangaId, type: 'narration' }
       );
 
       if (!published) {
@@ -208,14 +235,18 @@ class PipelineController {
    */
   async generateVideo(req: Request, res: Response, next: NextFunction) {
     try {
-      const { chapterId, mangaId, options } = req.body;
+      const rawChapterId = req.body.chapterId;
+      const rawMangaId = req.body.mangaId;
+      const options = req.body.options;
 
-      if (!chapterId) {
+      if (!rawChapterId) {
         return res.status(400).json({
           success: false,
           message: 'chapterId is required',
         });
       }
+
+      const chapterId = toNumericId(rawChapterId);
 
       const analysis = await ChapterAnalysis.findOne({ chapterId });
       if (!analysis || analysis.timeline.length === 0) {
@@ -225,23 +256,33 @@ class PipelineController {
         });
       }
 
-      // Create job
-      const job = new Job({
-        chapterId,
-        mangaId: mangaId || analysis.mangaId,
-        type: 'video' as JobType,
-        status: 'queued',
-        steps: [
-          { step: 'video_render', status: 'queued', progress: 0 },
-        ],
-      });
-      await job.save();
+      const resolvedMangaId = toNumericId(rawMangaId || analysis.mangaId);
+
+      // Upsert job
+      const job = await Job.findOneAndUpdate(
+        { chapterId, type: 'video' },
+        {
+          $setOnInsert: {
+            chapterId,
+            mangaId: resolvedMangaId,
+            type: 'video' as JobType,
+          },
+          $set: {
+            status: 'queued',
+            options,
+            steps: [
+              { step: 'video_render', status: 'queued', progress: 0 },
+            ],
+          },
+        },
+        { new: true, upsert: true }
+      );
 
       // Publish to queue
       const published = await rabbitMQService.produceMessage(
         EXCHANGE_NAMES.AI_VIDEO,
         ROUTING_KEYS.AI_VIDEO.GENERATE_VIDEO,
-        { jobId: job._id.toString(), chapterId, mangaId: mangaId || analysis.mangaId, type: 'video', options }
+        { jobId: job._id.toString(), chapterId, mangaId: resolvedMangaId, type: 'video', options }
       );
 
       if (!published) {
@@ -306,7 +347,7 @@ class PipelineController {
    */
   async getResult(req: Request, res: Response, next: NextFunction) {
     try {
-      const { chapterId } = req.params;
+      const chapterId = toNumericId(req.params.chapterId);
 
       const analysis = await ChapterAnalysis.findOne({ chapterId });
       if (!analysis) {
@@ -408,8 +449,8 @@ class PipelineController {
       const results: any[] = [];
 
       for (const chapter of chaptersToProcess) {
-        const chapterId = String(chapter.id);
-        const mangaId = String(chapter.mangaId || webtoonId);
+        const chapterId = toNumericId(chapter.id);
+        const mangaId = toNumericId(chapter.mangaId || webtoonId);
         const chapterTitle = chapter.name || `Chapter ${chapter.number || 0}`;
 
         const result = await this.runFullPipelineForChapter(
@@ -456,8 +497,8 @@ class PipelineController {
       }
 
       const result = await this.runFullPipelineForChapter(
-        String(chapterId),
-        String(mangaId),
+        toNumericId(chapterId),
+        toNumericId(mangaId),
         `Chapter ${chapterId}`,
         options,
         force === true
@@ -479,13 +520,13 @@ class PipelineController {
    * Reuses or creates a `full_pipeline` job and skips already completed stages.
    */
   private async runFullPipelineForChapter(
-    chapterId: string,
-    mangaId: string,
+    chapterId: number,
+    mangaId: number,
     chapterTitle: string,
     options: any,
     force: boolean
   ): Promise<any> {
-    let job = await this.getOrCreateFullPipelineJob(chapterId, mangaId, force);
+    let job = await this.getOrCreateFullPipelineJob(chapterId, mangaId, options, force);
 
     if (job.status === 'completed' && !force) {
       const analysis = await ChapterAnalysis.findOne({ chapterId });
@@ -505,110 +546,30 @@ class PipelineController {
       };
     }
 
-    // Ensure job is marked processing while we work through stages
-    if (job.status !== 'processing') {
-      job.status = 'processing';
+    // Mark the pipeline as queued and dispatch the first incomplete step to RabbitMQ
+    if (job.status !== 'queued' && job.status !== 'processing') {
+      job.status = 'queued';
       await job.save();
     }
 
-    logger.info(`[Full Pipeline] Resuming chapter ${chapterId} - ${chapterTitle} (job: ${job._id})`);
+    logger.info(`[Full Pipeline] Queuing chapter ${chapterId} - ${chapterTitle} (job: ${job._id})`);
 
     this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:started', {
       title: chapterTitle,
       step: 'vision_analysis',
       progress: job.progress,
+      status: 'queued',
     });
 
     try {
-      // 1. Analyze panels (fetch_panels, ocr, vision_analysis)
-      if (!this.isStepCompleted(job, 'vision_analysis')) {
-        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:started', {
-          step: 'vision_analysis',
-          progress: job.progress,
-        });
-        await this.processAnalysis(job._id.toString(), chapterId, mangaId);
-        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:completed', {
-          step: 'vision_analysis',
-          progress: 25,
-        });
-        job = await this.reloadJob(job._id.toString());
-        if (this.isJobFailed(job)) throw new Error(job.error || 'Analysis stage failed');
-        await this.markJobProcessing(job._id.toString());
-      } else {
-        logger.info(`[Full Pipeline] Analysis already completed for chapter ${chapterId}`);
-      }
-
-      job = await this.reloadJob(job._id.toString());
-
-      // 2. Generate story
-      if (!this.isStepCompleted(job, 'story_generation')) {
-        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:started', { step: 'story_generation', progress: 25 });
-        await this.updateJobStep(job._id.toString(), 'story_generation', 'processing');
-        await storyService.generateStory(chapterId);
-        await this.updateJobStep(job._id.toString(), 'story_generation', 'completed', 100);
-        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:completed', { step: 'story_generation', progress: 50 });
-      } else {
-        logger.info(`[Full Pipeline] Story already completed for chapter ${chapterId}`);
-      }
-
-      job = await this.reloadJob(job._id.toString());
-
-      // 3. Generate narration / audio / timeline / subtitles
-      if (!this.isStepCompleted(job, 'subtitles')) {
-        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:started', { step: 'narration', progress: 50 });
-        await this.processNarration(job._id.toString(), chapterId);
-        job = await this.reloadJob(job._id.toString());
-        if (this.isJobFailed(job)) throw new Error(job.error || 'Narration stage failed');
-        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:completed', { step: 'narration', progress: 75 });
-        await this.markJobProcessing(job._id.toString());
-      } else {
-        logger.info(`[Full Pipeline] Narration already completed for chapter ${chapterId}`);
-      }
-
-      job = await this.reloadJob(job._id.toString());
-
-      // 4. Render final video
-      if (!this.isStepCompleted(job, 'video_render')) {
-        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:started', { step: 'video_render', progress: 75 });
-        await this.processVideo(job._id.toString(), chapterId, options);
-        job = await this.reloadJob(job._id.toString());
-        if (this.isJobFailed(job)) throw new Error(job.error || 'Video stage failed');
-        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:completed', { step: 'video_render', progress: 100 });
-      } else {
-        logger.info(`[Full Pipeline] Video already completed for chapter ${chapterId}`);
-      }
-
-      job = await this.reloadJob(job._id.toString());
-      job.status = 'completed';
-      job.progress = 100;
-      job.completedAt = new Date();
-      await job.save();
-
-      const analysis = await ChapterAnalysis.findOne({ chapterId });
-
-      this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:completed', {
-        progress: 100,
-        files: analysis ? {
-          story: analysis.story,
-          audio: analysis.audioFile,
-          video: analysis.videoFile,
-          thumbnail: analysis.thumbnailFile,
-          subtitle: analysis.subtitleFile,
-        } : undefined,
-      });
+      await this.queueNextFullPipelineStep(job, chapterId, mangaId);
 
       return {
         chapterId,
         title: chapterTitle,
-        status: 'completed',
+        status: 'queued',
         jobId: job._id,
-        files: analysis ? {
-          story: analysis.story,
-          audio: analysis.audioFile,
-          video: analysis.videoFile,
-          thumbnail: analysis.thumbnailFile,
-          subtitle: analysis.subtitleFile,
-        } : undefined,
+        message: 'Full pipeline queued. Progress will be streamed via Socket.IO.',
       };
     } catch (err: any) {
       logger.error(`[Full Pipeline] Failed for chapter ${chapterId}:`, err);
@@ -644,66 +605,66 @@ class PipelineController {
     return job?.status === 'failed';
   }
 
-  private async reloadJob(jobId: string): Promise<IJob> {
+  private async reloadJob(jobId: string) {
     const job = await Job.findById(jobId);
     if (!job) throw new Error(`Job ${jobId} not found`);
     return job;
   }
 
-  private async markJobProcessing(jobId: string): Promise<void> {
-    await Job.findByIdAndUpdate(jobId, {
-      $set: { status: 'processing' },
-    });
-  }
-
-  private emitPipelineEvent(jobId: string, chapterId: string, event: string, data: any = {}) {
+  private emitPipelineEvent(jobId: string, chapterId: number | string, event: string, data: any = {}) {
     socketService.emitToContext({ jobId, chapterId }, event, { ...data, chapterId, jobId });
   }
 
   private async getOrCreateFullPipelineJob(
-    chapterId: string,
-    mangaId: string,
+    chapterId: number,
+    mangaId: number,
+    options: any,
     force: boolean
   ): Promise<IJob> {
+    const allSteps: PipelineStep[] = [
+      'fetch_panels', 'ocr', 'vision_analysis', 'story_generation',
+      'voice_generation', 'timeline', 'subtitles', 'video_render',
+    ];
+    const defaultSteps = allSteps.map((step) => ({
+      step,
+      status: 'queued' as JobStatus,
+      progress: 0,
+    }));
+
     let job = await Job.findOne({ chapterId, type: 'full_pipeline' }).sort({ createdAt: -1 });
 
     if (job && force) {
-      job.status = 'processing';
-      job.progress = 0;
-      job.currentStep = undefined;
-      job.error = undefined;
-      job.result = undefined;
-      job.completedAt = undefined;
-      job.startedAt = new Date();
-      job.steps.forEach((s) => {
-        s.status = 'queued';
-        s.progress = 0;
-        s.startedAt = undefined;
-        s.completedAt = undefined;
-        s.error = undefined;
-      });
-      await job.save();
+      await Job.findOneAndUpdate(
+        { _id: job._id },
+        {
+          $set: {
+            status: 'processing',
+            progress: 0,
+            currentStep: undefined,
+            error: undefined,
+            result: undefined,
+            options,
+            completedAt: undefined,
+            startedAt: new Date(),
+            steps: defaultSteps,
+          },
+        }
+      );
+      job = await this.reloadJob(job._id.toString());
     }
 
     if (!job) {
-      job = new Job({
-        chapterId,
-        mangaId,
-        type: 'full_pipeline' as JobType,
-        status: 'processing',
-        steps: [
-          { step: 'fetch_panels', status: 'queued', progress: 0 },
-          { step: 'ocr', status: 'queued', progress: 0 },
-          { step: 'vision_analysis', status: 'queued', progress: 0 },
-          { step: 'story_generation', status: 'queued', progress: 0 },
-          { step: 'voice_generation', status: 'queued', progress: 0 },
-          { step: 'timeline', status: 'queued', progress: 0 },
-          { step: 'subtitles', status: 'queued', progress: 0 },
-          { step: 'video_render', status: 'queued', progress: 0 },
-        ],
-        startedAt: new Date(),
-      });
-      await job.save();
+      job = await Job.findOneAndUpdate(
+        { chapterId, type: 'full_pipeline' },
+        {
+          $setOnInsert: { chapterId, mangaId, type: 'full_pipeline' as JobType },
+          $set: { status: 'processing', options, steps: defaultSteps, startedAt: new Date() },
+        },
+        { new: true, upsert: true }
+      );
+      if (!job) {
+        throw new Error(`Failed to create full_pipeline job for chapter ${chapterId}`);
+      }
     }
 
     return job;
@@ -714,7 +675,7 @@ class PipelineController {
   /**
    * Process analysis job (called by queue consumer or synchronously)
    */
-  async processAnalysis(jobId: string, chapterId: string, mangaId: string): Promise<void> {
+  async processAnalysis(jobId: string, chapterId: number, mangaId: number): Promise<void> {
     const job = await Job.findById(jobId);
     if (!job) return;
 
@@ -755,6 +716,10 @@ class PipelineController {
 
       this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:completed', { step: 'vision_analysis', progress: 100, panels: panels.length });
       logger.info(`Analysis job ${jobId} completed: ${panels.length} panels`);
+
+      if (job.type === 'full_pipeline') {
+        await this.queueNextFullPipelineStep(job, chapterId, mangaId);
+      }
     } catch (error: any) {
       job.status = 'failed';
       job.error = error.message;
@@ -767,7 +732,7 @@ class PipelineController {
   /**
    * Process narration job
    */
-  async processNarration(jobId: string, chapterId: string): Promise<void> {
+  async processNarration(jobId: string, chapterId: number): Promise<void> {
     const job = await Job.findById(jobId);
     if (!job) return;
 
@@ -807,13 +772,16 @@ class PipelineController {
       await this.updateJobStep(jobId, 'subtitles', 'completed', 100);
 
       // Update analysis record
-      const analysis = await ChapterAnalysis.findOne({ chapterId });
-      if (analysis) {
-        analysis.audioFile = ttsResult.combinedFile;
-        analysis.subtitleFile = srtPath;
-        analysis.status = 'narrated';
-        await analysis.save();
-      }
+      await ChapterAnalysis.findOneAndUpdate(
+        { chapterId },
+        {
+          $set: {
+            audioFile: ttsResult.combinedFile,
+            subtitleFile: srtPath,
+            status: 'narrated',
+          },
+        }
+      );
 
       job.status = 'completed';
       job.progress = 100;
@@ -828,6 +796,10 @@ class PipelineController {
 
       this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:completed', { step: 'narration', duration: ttsResult.totalDuration });
       logger.info(`Narration job ${jobId} completed: ${ttsResult.totalDuration.toFixed(1)}s`);
+
+      if (job.type === 'full_pipeline') {
+        await this.queueNextFullPipelineStep(job, chapterId, job.mangaId);
+      }
     } catch (error: any) {
       job.status = 'failed';
       job.error = error.message;
@@ -840,7 +812,7 @@ class PipelineController {
   /**
    * Process video generation job
    */
-  async processVideo(jobId: string, chapterId: string, options?: any): Promise<void> {
+  async processVideo(jobId: string, chapterId: number, options?: any): Promise<void> {
     const job = await Job.findById(jobId);
     if (!job) return;
 
@@ -858,6 +830,18 @@ class PipelineController {
 
       await this.updateJobStep(jobId, 'video_render', 'completed', 100);
 
+      // Update analysis record
+      await ChapterAnalysis.findOneAndUpdate(
+        { chapterId },
+        {
+          $set: {
+            videoFile: result.videoPath,
+            thumbnailFile: result.thumbnailPath,
+            status: 'video_ready',
+          },
+        }
+      );
+
       job.status = 'completed';
       job.progress = 100;
       job.completedAt = new Date();
@@ -869,6 +853,10 @@ class PipelineController {
 
       this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:completed', { step: 'video_render', videoFile: result.videoPath, thumbnailFile: result.thumbnailPath });
       logger.info(`Video job ${jobId} completed: ${result.videoPath}`);
+
+      if (job.type === 'full_pipeline') {
+        await this.finalizeFullPipelineJob(job, chapterId);
+      }
     } catch (error: any) {
       job.status = 'failed';
       job.error = error.message;
@@ -876,6 +864,136 @@ class PipelineController {
       this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:failed', { step: 'video_render', error: error.message });
       logger.error(`Video job ${jobId} failed:`, error.message);
     }
+  }
+
+  /**
+   * Process story generation job (called by queue consumer or synchronously)
+   */
+  async processStory(jobId: string, chapterId: number, mangaId?: number): Promise<void> {
+    const job = await Job.findById(jobId);
+    if (!job) return;
+
+    try {
+      job.status = 'processing';
+      job.startedAt = new Date();
+      job.currentStep = 'story_generation';
+      await job.save();
+
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:started', { step: 'story_generation' });
+      await this.updateJobStep(jobId, 'story_generation', 'processing');
+
+      const story = await storyService.generateStory(chapterId, mangaId || job.mangaId);
+
+      await this.updateJobStep(jobId, 'story_generation', 'completed', 100);
+
+      job.status = 'completed';
+      job.progress = 100;
+      job.completedAt = new Date();
+      job.result = { storyFile: `chapters/${chapterId}/story.json` };
+      await job.save();
+
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:completed', { step: 'story_generation', story });
+      logger.info(`Story job ${jobId} completed`);
+
+      if (job.type === 'full_pipeline') {
+        await this.queueNextFullPipelineStep(job, chapterId, mangaId || job.mangaId);
+      }
+    } catch (error: any) {
+      job.status = 'failed';
+      job.error = error.message;
+      await job.save();
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:failed', { step: 'story_generation', error: error.message });
+      logger.error(`Story job ${jobId} failed:`, error.message);
+    }
+  }
+
+  /**
+   * Queue the next incomplete step of a full-pipeline job to RabbitMQ.
+   * Falls back to synchronous execution if the queue is unavailable.
+   */
+  private async queueNextFullPipelineStep(job: IJob, chapterId: number, mangaId?: number): Promise<void> {
+    const stepOrder: PipelineStep[] = ['vision_analysis', 'story_generation', 'voice_generation', 'video_render'];
+    const latestJob = await this.reloadJob(job._id.toString());
+    const nextStep = stepOrder.find((s) => !this.isStepCompleted(latestJob, s));
+
+    if (!nextStep) {
+      return this.finalizeFullPipelineJob(latestJob, chapterId);
+    }
+
+    const resolvedMangaId = mangaId || latestJob.mangaId;
+    let published = false;
+
+    if (nextStep === 'vision_analysis') {
+      published = await rabbitMQService.produceMessage(
+        EXCHANGE_NAMES.AI_WORKER,
+        ROUTING_KEYS.AI_WORKER.PANEL_ANALYSIS,
+        { jobId: latestJob._id.toString(), chapterId, mangaId: resolvedMangaId, type: 'full_pipeline' }
+      );
+      if (!published) {
+        logger.warn('Queue publish failed for analysis, processing synchronously');
+        await this.processAnalysis(latestJob._id.toString(), chapterId, resolvedMangaId);
+      }
+    } else if (nextStep === 'story_generation') {
+      published = await rabbitMQService.produceMessage(
+        EXCHANGE_NAMES.AI_VIDEO,
+        ROUTING_KEYS.AI_VIDEO.GENERATE_SCRIPT,
+        { jobId: latestJob._id.toString(), chapterId, mangaId: resolvedMangaId, type: 'full_pipeline' }
+      );
+      if (!published) {
+        logger.warn('Queue publish failed for story, processing synchronously');
+        await this.processStory(latestJob._id.toString(), chapterId, resolvedMangaId);
+      }
+    } else if (nextStep === 'voice_generation') {
+      published = await rabbitMQService.produceMessage(
+        EXCHANGE_NAMES.AI_VIDEO,
+        ROUTING_KEYS.AI_VIDEO.GENERATE_VOICE,
+        { jobId: latestJob._id.toString(), chapterId, mangaId: resolvedMangaId, type: 'full_pipeline' }
+      );
+      if (!published) {
+        logger.warn('Queue publish failed for narration, processing synchronously');
+        await this.processNarration(latestJob._id.toString(), chapterId);
+      }
+    } else if (nextStep === 'video_render') {
+      const videoOptions = latestJob.options || {};
+      published = await rabbitMQService.produceMessage(
+        EXCHANGE_NAMES.AI_VIDEO,
+        ROUTING_KEYS.AI_VIDEO.GENERATE_VIDEO,
+        { jobId: latestJob._id.toString(), chapterId, mangaId: resolvedMangaId, type: 'full_pipeline', options: videoOptions }
+      );
+      if (!published) {
+        logger.warn('Queue publish failed for video, processing synchronously');
+        await this.processVideo(latestJob._id.toString(), chapterId, videoOptions);
+      }
+    }
+  }
+
+  /**
+   * Mark a full-pipeline job as fully completed and emit the final completion event.
+   */
+  private async finalizeFullPipelineJob(job: IJob, chapterId: number): Promise<void> {
+    const latestJob = await this.reloadJob(job._id.toString());
+
+    if (!this.isJobFailed(latestJob)) {
+      latestJob.status = 'completed';
+      latestJob.progress = 100;
+      latestJob.completedAt = new Date();
+      await latestJob.save();
+    }
+
+    const analysis = await ChapterAnalysis.findOne({ chapterId });
+
+    this.emitPipelineEvent(latestJob._id.toString(), chapterId, 'pipeline:chapter:completed', {
+      progress: 100,
+      files: analysis ? {
+        story: analysis.story,
+        audio: analysis.audioFile,
+        video: analysis.videoFile,
+        thumbnail: analysis.thumbnailFile,
+        subtitle: analysis.subtitleFile,
+      } : undefined,
+    });
+
+    logger.info(`Full pipeline job ${latestJob._id} completed for chapter ${chapterId}`);
   }
 
   /**

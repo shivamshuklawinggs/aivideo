@@ -4,7 +4,7 @@ import socketService from './socketService';
 
 export interface AIGenerateContext {
   jobId?: string;
-  chapterId?: string;
+  chapterId?: number | string;
   panelIndex?: number;
   step?: string;
 }
@@ -315,11 +315,69 @@ Return ONLY valid JSON, no markdown formatting. All text fields must be in Engli
   }
 
   /**
+   * Analyze all panels in a chapter together for better whole-story understanding.
+   * Sends every panel image in a single request so the model sees the full chapter.
+   */
+  async analyzeAllPanels(
+    imageBase64s: string[],
+    context?: AIGenerateContext
+  ): Promise<VisionAnalysisResult[]> {
+    const prompt = `You are analyzing all panels of a manga/webtoon chapter together.
+
+There are ${imageBase64s.length} panel images in order. Analyze the entire chapter as one continuous story and return a JSON array with one object per panel in the same order.
+
+Each panel object must follow this structure:
+{
+  "characters": ["character names or descriptions visible"],
+  "actions": ["actions happening"],
+  "emotions": ["emotions expressed"],
+  "scene": "brief scene/setting description",
+  "objects": ["notable objects"],
+  "importantEvents": ["key story events"],
+  "description": "A detailed 2-3 sentence description of what's happening in this panel"
+}
+
+Rules:
+1. Return ONLY a valid JSON array. No markdown, no extra text.
+2. All text must be in English (use English transliterations for names).
+3. Keep the array length exactly ${imageBase64s.length}.
+4. If a character's name is unknown, describe them (e.g., "blonde girl", "tall man in black coat").
+5. Consider the overall chapter flow: describe how panels connect into one continuous narrative.`;
+
+    const response = await this.generate({
+      prompt,
+      images: imageBase64s,
+      temperature: 0.3,
+      format: 'json',
+      context: { ...context, step: 'vision_all_panels' },
+    });
+
+    const parsed = this.parseJSON<VisionAnalysisResult[]>(response, []);
+
+    if (!Array.isArray(parsed) || parsed.length !== imageBase64s.length) {
+      logger.warn(`analyzeAllPanels returned ${parsed?.length || 0} entries, expected ${imageBase64s.length}. Filling fallbacks.`);
+      const fallbacks: VisionAnalysisResult[] = Array.from({ length: imageBase64s.length }).map((_, i) => ({
+        characters: [],
+        actions: [],
+        emotions: [],
+        scene: '',
+        objects: [],
+        importantEvents: [],
+        description: `Panel ${i + 1}`,
+      }));
+      return parsed && parsed.length > 0 ? parsed.slice(0, imageBase64s.length).concat(fallbacks.slice(parsed.length)) : fallbacks;
+    }
+
+    return parsed;
+  }
+
+  /**
    * Generate a coherent story from panel analyses
    */
   async generateStory(
     panels: Array<{ ocr: OCRResult; vision: VisionAnalysisResult; panelIndex: number }>,
-    combinedOcrText?: string
+    combinedOcrText?: string,
+    previousContext?: string
   ): Promise<{
     title: string;
     narrative: string;
@@ -339,11 +397,15 @@ Return ONLY valid JSON, no markdown formatting. All text fields must be in Engli
       ? `Combined OCR text from all panels:\n${combinedOcrText}\n\n`
       : '';
 
+    const contextSection = previousContext
+      ? `STORY CONTINUITY CONTEXT:\n${previousContext}\n\n`
+      : '';
+
 const prompt = `You are an experienced English story writer and narrator.
 
-Write the full story of the Manga/Webtoon chapter in English using the panel analyses below.
+Write the full story of the Manga/Webtoon chapter in English using the panel analyses below. Make the story feel like a continuous continuation of the overall narrative when context is provided.
 
-${combinedSection}PANEL ANALYSES:
+${contextSection}${combinedSection}PANEL ANALYSES:
 ${panelSummaries}
 
 Return ONLY valid JSON with this structure:

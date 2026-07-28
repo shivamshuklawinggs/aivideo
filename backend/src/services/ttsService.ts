@@ -104,9 +104,9 @@ class TTSService {
    */
   async generateChapterNarration(
     segments: string[],
-    chapterId: string
+    chapterId: number
   ): Promise<{ files: TTSResult[]; totalDuration: number; combinedFile: string }> {
-    const chapterDir = path.join(this.outputDir, 'chapters', chapterId, 'audio');
+    const chapterDir = path.join(this.outputDir, 'chapters', String(chapterId), 'audio');
     await fs.ensureDir(chapterDir);
 
     const files: TTSResult[] = [];

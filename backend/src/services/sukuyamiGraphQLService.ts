@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { print } from 'graphql';
 import type { DocumentNode } from 'graphql';
 import logger from '../config/logger';
+import { toNumericId } from '../utils/numericId';
 import dotenv from "dotenv"
 dotenv.config()
 
@@ -197,14 +198,14 @@ export class SukuyamiGraphQLService {
     }
   }
 
-  async getChapterPages(chapterId: string): Promise<string[]> {
+  async getChapterPages(chapterId: number | string): Promise<string[]> {
     try {
       const result = await this.executeQuery<{
         fetchChapterPages: {
           chapter: { id: string; pageCount: number; isDownloaded: boolean };
           pages: string[];
         };
-      }>(GET_CHAPTER_PAGES_FETCH, { input: { chapterId: parseInt(chapterId, 10) } });
+      }>(GET_CHAPTER_PAGES_FETCH, { input: { chapterId: toNumericId(chapterId) } });
 
       logger.info(`Retrieved ${result.fetchChapterPages.pages.length} pages for chapter: ${chapterId}`);
       if (result?.fetchChapterPages?.pages  && Array.isArray(result.fetchChapterPages.pages)) {

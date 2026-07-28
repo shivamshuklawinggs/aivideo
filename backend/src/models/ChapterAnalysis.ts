@@ -25,8 +25,8 @@ export interface IPanelAnalysis {
 }
 
 export interface IChapterAnalysis extends Document {
-  chapterId: string;
-  mangaId: string;
+  chapterId: number;
+  mangaId: number;
   chapterTitle: string;
   panelCount: number;
   panels: IPanelAnalysis[];
@@ -80,8 +80,8 @@ const PanelAnalysisSchema = new Schema<IPanelAnalysis>({
 
 const ChapterAnalysisSchema = new Schema<IChapterAnalysis>(
   {
-    chapterId: { type: String, required: true, unique: true, index: true },
-    mangaId: { type: String, required: true, index: true },
+    chapterId: { type: Number, required: true, unique: true, index: true },
+    mangaId: { type: Number, required: true, index: true },
     chapterTitle: { type: String, default: '' },
     panelCount: { type: Number, default: 0 },
     panels: { type: [PanelAnalysisSchema], default: [] },
@@ -108,6 +108,8 @@ const ChapterAnalysisSchema = new Schema<IChapterAnalysis>(
   },
   { timestamps: true }
 );
+
+ChapterAnalysisSchema.index({ mangaId: 1, chapterId: 1 }, { unique: true });
 
 const ChapterAnalysis: Model<IChapterAnalysis> = mongoose.model<IChapterAnalysis>('ChapterAnalysis', ChapterAnalysisSchema);
 

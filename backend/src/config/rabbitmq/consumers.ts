@@ -1,6 +1,7 @@
 import { rabbitMQService } from './rabbitmq.service';
 import { QUEUE_NAMES } from './constants';
 import logger from '../logger';
+import { toNumericId } from '../../utils/numericId';
 
 const handleDataViaRoutingKey = async (data: any, routingKey: string) => {
     try {
@@ -9,33 +10,34 @@ const handleDataViaRoutingKey = async (data: any, routingKey: string) => {
         // Lazy-import to avoid circular dependencies at startup
         const pipelineController = (await import('../../controllers/pipelineController')).default;
 
+        const chapterId = toNumericId(data.chapterId);
+
         switch (routingKey) {
             case 'ai-worker.panel-analysis':
                 // Process chapter analysis (OCR + Vision)
-                await pipelineController.processAnalysis(data.jobId, data.chapterId, data.mangaId);
+                await pipelineController.processAnalysis(data.jobId, chapterId, toNumericId(data.mangaId));
                 break;
 
             case 'ai-video.generate-voice':
                 // Process narration (TTS + timeline + subtitles)
-                await pipelineController.processNarration(data.jobId, data.chapterId);
+                await pipelineController.processNarration(data.jobId, chapterId);
                 break;
 
             case 'ai-video.generate-video':
                 // Process video rendering
-                await pipelineController.processVideo(data.jobId, data.chapterId, data.options);
+                await pipelineController.processVideo(data.jobId, chapterId, data.options);
                 break;
 
             case 'ai-video.generate-script':
                 // Process story generation
-                const storyService = (await import('../../services/storyService')).default;
-                await storyService.generateStory(data.chapterId);
+                await pipelineController.processStory(data.jobId, chapterId, toNumericId(data.mangaId));
                 break;
 
             case 'ai-video.generate-subtitles':
                 // Process subtitle generation
                 const timelineService = (await import('../../services/timelineService')).default;
-                await timelineService.generateSRT(data.chapterId);
-                await timelineService.generateVTT(data.chapterId);
+                await timelineService.generateSRT(chapterId);
+                await timelineService.generateVTT(chapterId);
                 break;
 
             default:

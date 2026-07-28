@@ -92,6 +92,20 @@ services:
     restart: unless-stopped
     networks:
       - ai-network
+    # ─── XTTS v2 API ───────────────────────────────────────────────────
+  xtts:
+    image: ghcr.io/coqui-ai/xtts-streaming-server:latest
+    container_name: xtts
+    ports:
+      - "8020:80"
+    restart: unless-stopped
+    environment:
+      COQUI_TOS_AGREED: "1"
+    volumes:
+      - xtts_models:/app/tts_models
+      - ./voices:/app/voices
+    networks:
+      - ai-network
 
   # ─── Ollama (Local AI) ─────────────────────────────────────────────
   ollama:
@@ -111,7 +125,7 @@ volumes:
   minio_data:
   suwayomi_data:
   ollama_data:
-
+  xtts_models:
 networks:
   ai-network:
     driver: bridge

@@ -15,8 +15,8 @@ export interface IJobStep {
 }
 
 export interface IJob extends Document {
-  chapterId: string;
-  mangaId: string;
+  chapterId: number;
+  mangaId: number;
   type: JobType;
   status: JobStatus;
   steps: IJobStep[];
@@ -31,6 +31,7 @@ export interface IJob extends Document {
     videoFile?: string;
     thumbnailFile?: string;
   };
+  options?: any;
   error?: string;
   retryCount: number;
   maxRetries: number;
@@ -52,8 +53,8 @@ const JobStepSchema = new Schema<IJobStep>({
 
 const JobSchema = new Schema<IJob>(
   {
-    chapterId: { type: String, required: true, index: true },
-    mangaId: { type: String, required: true, index: true },
+    chapterId: { type: Number, required: true, index: true },
+    mangaId: { type: Number, required: true, index: true },
     type: { type: String, required: true, enum: ['analyze', 'story', 'narration', 'video', 'full_pipeline'] },
     status: { type: String, required: true, enum: ['queued', 'processing', 'completed', 'failed', 'cancelled'], default: 'queued' },
     steps: { type: [JobStepSchema], default: [] },
@@ -68,6 +69,7 @@ const JobSchema = new Schema<IJob>(
       videoFile: String,
       thumbnailFile: String,
     },
+    options: { type: Schema.Types.Mixed },
     error: String,
     retryCount: { type: Number, default: 0 },
     maxRetries: { type: Number, default: 3 },
@@ -79,6 +81,7 @@ const JobSchema = new Schema<IJob>(
 
 JobSchema.index({ status: 1, createdAt: -1 });
 JobSchema.index({ chapterId: 1, type: 1 });
+JobSchema.index({ chapterId: 1, mangaId: 1, type: 1 }, { unique: true });
 
 const Job: Model<IJob> = mongoose.model<IJob>('Job', JobSchema);
 

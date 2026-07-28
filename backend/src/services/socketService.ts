@@ -78,8 +78,9 @@ class SocketIOService {
     }
   }
 
-  emitToChapter(chapterId: string, event: PipelineEvent | string, data: any): void {
-    this.emit(event, { ...data, chapterId }, `chapter:${chapterId}`);
+  emitToChapter(chapterId: string | number, event: PipelineEvent | string, data: any): void {
+    const room = `chapter:${chapterId}`;
+    this.emit(event, { ...data, chapterId }, room);
   }
 
   emitToJob(jobId: string, event: PipelineEvent | string, data: any): void {
@@ -88,7 +89,7 @@ class SocketIOService {
   }
 
   emitToContext(
-    context: { jobId?: string; chapterId?: string },
+    context: { jobId?: string; chapterId?: string | number },
     event: PipelineEvent | string,
     data: any
   ): void {

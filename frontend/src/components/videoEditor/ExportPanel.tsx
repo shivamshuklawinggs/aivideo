@@ -23,6 +23,9 @@ import { Scene, FPS, WIDTH, HEIGHT } from './types';
 interface ExportPanelProps {
   scenes: Scene[];
   title?: string;
+  audioUrl?: string;
+  subtitleUrl?: string;
+  videoUrl?: string;
 }
 
 type ExportFormat = 'mp4' | 'webm';
@@ -34,7 +37,7 @@ const RESOLUTIONS: Record<Resolution, { width: number; height: number }> = {
   '480p': { width: 854, height: 480 },
 };
 
-export default function ExportPanel({ scenes, title }: ExportPanelProps) {
+export default function ExportPanel({ scenes, title, audioUrl, subtitleUrl, videoUrl }: ExportPanelProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
@@ -390,6 +393,48 @@ export default function ExportPanel({ scenes, title }: ExportPanelProps) {
         <Typography variant="caption" sx={{ color: '#ff4444' }}>
           {error}
         </Typography>
+      )}
+
+      {/* Generated files from pipeline */}
+      {(videoUrl || audioUrl || subtitleUrl) && (
+        <Box sx={{ mt: 2, mb: 2 }}>
+          <Typography variant="subtitle2" sx={{ color: '#fff', mb: 1 }}>
+            Generated Assets
+          </Typography>
+          {videoUrl && (
+            <Box sx={{ mb: 2 }}>
+              <video
+                src={videoUrl}
+                controls
+                style={{ width: '100%', borderRadius: 8, backgroundColor: '#000' }}
+              />
+            </Box>
+          )}
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {audioUrl && (
+              <Button
+                variant="outlined"
+                size="small"
+                href={audioUrl}
+                target="_blank"
+                sx={{ borderColor: '#4a90d9', color: '#4a90d9', fontSize: 12 }}
+              >
+                Download Audio
+              </Button>
+            )}
+            {subtitleUrl && (
+              <Button
+                variant="outlined"
+                size="small"
+                href={subtitleUrl}
+                target="_blank"
+                sx={{ borderColor: '#9c27b0', color: '#9c27b0', fontSize: 12 }}
+              >
+                Download Subtitles
+              </Button>
+            )}
+          </Box>
+        </Box>
       )}
 
       {/* Result preview */}
