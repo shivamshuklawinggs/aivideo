@@ -17,10 +17,14 @@ export interface AnalysisProgress {
 class PanelAnalysisService {
   private batchSize: number;
   private parallelRequests: number;
+  private panelMaxRetries: number;
+  private panelRetryDelayMs: number;
 
   constructor() {
     this.batchSize = parseInt(process.env.PANEL_BATCH_SIZE || '5');
     this.parallelRequests = parseInt(process.env.PANEL_PARALLEL_REQUESTS || '2');
+    this.panelMaxRetries = parseInt(process.env.PANEL_MAX_RETRIES || '3');
+    this.panelRetryDelayMs = parseInt(process.env.PANEL_RETRY_DELAY_MS || '1000');
   }
 
   /**
@@ -37,45 +41,83 @@ class PanelAnalysisService {
     }
   }
 
-  /**
-   * Download a panel image and return as base64
-   */
-  async downloadPanelAsBase64(imageUrl: string): Promise<string> {
-    try {
-      const response = await axios.get(imageUrl, {
-        responseType: 'arraybuffer',
-        timeout: 60000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-      });
-
-      const buffer = Buffer.from(response.data);
-      return buffer.toString('base64');
-    } catch (error: any) {
-      logger.error(`Failed to download panel image: ${imageUrl}`, error.message);
-      throw new Error(`Failed to download panel: ${error.message}`);
-    }
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
-   * Analyze a single panel (OCR + Vision)
+   * Download a panel image and return as base64 with retries
+   */
+  async downloadPanelAsBase64(imageUrl: string): Promise<string> {
+    const maxRetries = parseInt(process.env.PANEL_DOWNLOAD_RETRIES || '3', 10);
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`[Download] Attempt ${attempt + 1}/${maxRetries + 1} for ${imageUrl}`);
+        const response = await axios.get(imageUrl, {
+          responseType: 'arraybuffer',
+          timeout: 60000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+        });
+
+        const buffer = Buffer.from(response.data);
+        logger.info(`[Download] Success for ${imageUrl} (${buffer.length} bytes)`);
+        return buffer.toString('base64');
+      } catch (error: any) {
+        logger.error(`[Download] Attempt ${attempt + 1} failed for ${imageUrl}:`, error.message);
+        if (attempt < maxRetries) {
+          const delay = 1000 * Math.pow(2, attempt);
+          logger.warn(`[Download] Retrying in ${delay}ms...`);
+          await this.sleep(delay);
+        } else {
+          throw new Error(`Failed to download panel after ${maxRetries + 1} attempts: ${error.message}`);
+        }
+      }
+    }
+
+    throw new Error(`Failed to download panel after ${maxRetries + 1} attempts: ${imageUrl}`);
+  }
+
+  /**
+   * Analyze a single panel (OCR + Vision) with retries.
+   * Throws if vision analysis cannot be completed so the chapter job can be marked failed and resumed.
    */
   async analyzeSinglePanel(imageUrl: string, panelIndex: number): Promise<IPanelAnalysis> {
-    const imageBase64 = await this.downloadPanelAsBase64(imageUrl);
+    for (let attempt = 0; attempt <= this.panelMaxRetries; attempt++) {
+      try {
+        logger.info(`[Panel ${panelIndex + 1}] Analysis attempt ${attempt + 1}/${this.panelMaxRetries + 1} for ${imageUrl}`);
 
-    // Run OCR and Vision in parallel
-    const [ocr, vision] = await Promise.all([
-      aiService.extractText(imageBase64, panelIndex),
-      aiService.analyzePanel(imageBase64, panelIndex),
-    ]);
+        const imageBase64 = await this.downloadPanelAsBase64(imageUrl);
 
-    return {
-      panelIndex,
-      imageUrl,
-      ocr,
-      vision,
-    };
+        // Run OCR and Vision in parallel
+        const [ocr, vision] = await Promise.all([
+          aiService.extractText(imageBase64, panelIndex),
+          aiService.analyzePanel(imageBase64, panelIndex),
+        ]);
+
+        logger.info(`[Panel ${panelIndex + 1}] Analysis succeeded`);
+        return {
+          panelIndex,
+          imageUrl,
+          ocr,
+          vision,
+        };
+      } catch (error: any) {
+        logger.error(`[Panel ${panelIndex + 1}] Analysis attempt ${attempt + 1} failed:`, error.message);
+
+        if (attempt < this.panelMaxRetries) {
+          const delay = this.panelRetryDelayMs * Math.pow(2, attempt);
+          logger.warn(`[Panel ${panelIndex + 1}] Retrying in ${delay}ms...`);
+          await this.sleep(delay);
+        } else {
+          throw new Error(`Panel ${panelIndex + 1} analysis failed after ${this.panelMaxRetries + 1} attempts: ${error.message}`);
+        }
+      }
+    }
+
+    throw new Error(`Panel ${panelIndex + 1} analysis failed after ${this.panelMaxRetries + 1} attempts`);
   }
 
   /**
@@ -87,6 +129,7 @@ class PanelAnalysisService {
     jobId?: string,
     onProgress?: (progress: AnalysisProgress) => void
   ): Promise<IPanelAnalysis[]> {
+    try {
     // Fetch panel URLs
     const panelUrls = await this.fetchPanelUrls(chapterId);
     const total = panelUrls.length;
@@ -121,16 +164,7 @@ class PanelAnalysisService {
       const batch = panelUrls.slice(i, i + this.batchSize);
       const batchPromises = batch.map((url, batchIdx) => {
         const panelIndex = i + batchIdx;
-        return this.analyzeSinglePanel(url, panelIndex).catch((error) => {
-          logger.error(`Panel ${panelIndex} analysis failed:`, error.message);
-          // Return a partial result on failure
-          return {
-            panelIndex,
-            imageUrl: url,
-            ocr: { speech: [], narration: [], captions: [], soundEffects: [], rawText: '' },
-            vision: { characters: [], actions: [], emotions: [], scene: 'Analysis failed', objects: [], importantEvents: [], description: `Failed: ${error.message}` },
-          } as IPanelAnalysis;
-        });
+        return this.analyzeSinglePanel(url, panelIndex);
       });
 
       // Process batch with concurrency limit
@@ -163,11 +197,26 @@ class PanelAnalysisService {
 
     // Save results to database
     analysis.panels = results;
+    analysis.combinedText = results
+      .map((r) => r.ocr.rawText)
+      .filter(Boolean)
+      .join('\n\n');
     analysis.status = 'analyzed';
     await analysis.save();
 
     logger.info(`Completed analysis of ${total} panels for chapter ${chapterId}`);
     return results;
+  } catch (error: any) {
+    logger.error(`Chapter ${chapterId} analysis failed:`, error.message);
+
+    const analysis = await ChapterAnalysis.findOne({ chapterId });
+    if (analysis) {
+      analysis.status = 'failed';
+      await analysis.save();
+    }
+
+    throw error;
+  }
   }
 
   /**

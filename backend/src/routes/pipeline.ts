@@ -199,6 +199,128 @@ router.get('/result/:chapterId', authenticate, pipelineController.getResult.bind
 
 /**
  * @swagger
+ * /api/pipeline/chapter/full:
+ *   post:
+ *     summary: Run the full pipeline (analyze → story → narration → video) for a single chapter
+ *     tags: [Pipeline]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - chapterId
+ *               - mangaId
+ *             properties:
+ *               chapterId:
+ *                 type: string
+ *                 description: Chapter ID
+ *               mangaId:
+ *                 type: string
+ *                 description: Manga / webtoon ID
+ *               force:
+ *                 type: boolean
+ *                 description: Force re-run from the beginning even if already completed
+ *                 default: false
+ *               options:
+ *                 type: object
+ *                 description: Video rendering options
+ *                 properties:
+ *                   width:
+ *                     type: number
+ *                     default: 1920
+ *                   height:
+ *                     type: number
+ *                     default: 1080
+ *                   fps:
+ *                     type: number
+ *                     default: 30
+ *                   format:
+ *                     type: string
+ *                     enum: [mp4, webm]
+ *                     default: mp4
+ *                   quality:
+ *                     type: string
+ *                     enum: [low, medium, high]
+ *                     default: medium
+ *                   subtitles:
+ *                     type: boolean
+ *                     default: true
+ *     responses:
+ *       200:
+ *         description: Pipeline completed for the chapter
+ *       400:
+ *         description: chapterId and mangaId are required
+ */
+router.post('/chapter/full', authenticate, pipelineController.runFullPipelineForChapterByIds.bind(pipelineController));
+
+/**
+ * @swagger
+ * /api/pipeline/webtoon/full:
+ *   post:
+ *     summary: Run the full pipeline (analyze → story → narration → video) for a webtoon
+ *     tags: [Pipeline]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - webtoonId
+ *             properties:
+ *               webtoonId:
+ *                 type: string
+ *                 description: Webtoon / manga ID
+ *               chapterLimit:
+ *                 type: integer
+ *                 description: Maximum number of chapters to process (default 1, max all chapters)
+ *                 default: 1
+ *               force:
+ *                 type: boolean
+ *                 description: Force re-run from the beginning even if already completed
+ *                 default: false
+ *               options:
+ *                 type: object
+ *                 description: Video rendering options
+ *                 properties:
+ *                   width:
+ *                     type: number
+ *                     default: 1920
+ *                   height:
+ *                     type: number
+ *                     default: 1080
+ *                   fps:
+ *                     type: number
+ *                     default: 30
+ *                   format:
+ *                     type: string
+ *                     enum: [mp4, webm]
+ *                     default: mp4
+ *                   quality:
+ *                     type: string
+ *                     enum: [low, medium, high]
+ *                     default: medium
+ *                   subtitles:
+ *                     type: boolean
+ *                     default: true
+ *     responses:
+ *       200:
+ *         description: Pipeline completed for all requested chapters
+ *       400:
+ *         description: webtoonId is required
+ *       404:
+ *         description: No chapters found for this webtoon
+ */
+router.post('/webtoon/full', authenticate, pipelineController.runFullPipelineForWebtoon.bind(pipelineController));
+
+/**
+ * @swagger
  * /api/pipeline/health:
  *   get:
  *     summary: Health check for pipeline services

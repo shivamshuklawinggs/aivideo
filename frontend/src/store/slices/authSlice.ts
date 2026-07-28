@@ -38,10 +38,23 @@ const getToken = () => {
 };
 
 const initialState: AuthState = {
-  user: null,
-  token: getToken(),
+  user: {
+    _id: '000000000000000000000000',
+    email: 'guest@aivideo.local',
+    name: 'Guest User',
+    role: 'admin',
+    subscription: { plan: 'enterprise', status: 'active' },
+    usage: {
+      videosGenerated: 0,
+      storageUsed: 0,
+      monthlyVideoLimit: 1000,
+      monthlyStorageLimit: 10737418240,
+    },
+    preferences: { theme: 'dark', language: 'en', notifications: true },
+  },
+  token: getToken() || 'guest',
   refreshToken: typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null,
-  isAuthenticated: !!getToken(),
+  isAuthenticated: true,
   isLoading: false,
   error: null,
 };

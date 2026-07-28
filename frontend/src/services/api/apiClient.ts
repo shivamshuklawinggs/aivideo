@@ -37,7 +37,6 @@ apiClient.interceptors.response.use(
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
         document.cookie = 'token=; path=/; max-age=0';
-        window.location.href = '/login';
       }
     }
     return Promise.reject(error);

@@ -27,7 +27,11 @@ class StoryService {
       vision: p.vision,
     }));
 
-    const story = await aiService.generateStory(panelData);
+    const combinedText =
+      analysis.combinedText ||
+      analysis.panels.map((p: IPanelAnalysis) => p.ocr.rawText).filter(Boolean).join('\n\n');
+
+    const story = await aiService.generateStory(panelData, combinedText);
 
     // Save to database
     analysis.story = story;

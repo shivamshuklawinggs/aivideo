@@ -30,6 +30,7 @@ export interface IChapterAnalysis extends Document {
   chapterTitle: string;
   panelCount: number;
   panels: IPanelAnalysis[];
+  combinedText: string;
   story: {
     title: string;
     narrative: string;
@@ -84,6 +85,7 @@ const ChapterAnalysisSchema = new Schema<IChapterAnalysis>(
     chapterTitle: { type: String, default: '' },
     panelCount: { type: Number, default: 0 },
     panels: { type: [PanelAnalysisSchema], default: [] },
+    combinedText: { type: String, default: '' },
     story: {
       title: { type: String, default: '' },
       narrative: { type: String, default: '' },

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 import User, { IUser } from '../models/User';
 import logger from '../config/logger';
+
 declare global {
   namespace Express {
     interface Request {
@@ -11,114 +11,68 @@ declare global {
   }
 }
 
-export const protect = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+const DEFAULT_USER_EMAIL = 'guest@aivideo.local';
+let defaultUser: IUser | null = null;
+
+const getDefaultUser = async (): Promise<IUser | null> => {
   try {
-    let token: string | undefined;
+    if (defaultUser) return defaultUser;
 
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
-    } else if (req.cookies?.token) {
-      token = req.cookies.token;
-    }
-
-    if (!token) {
-      res.status(401).json({
-        success: false,
-        message: 'Not authorized to access this route',
-      });
-      return;
-    }
-
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as {
-        userId: string;
-      };
-      const user = await User.findById(decoded.userId).select('-password');
-
-      if (!user) {
-        res.status(401).json({
-          success: false,
-          message: 'User not found',
-        });
-        return;
-      }
-
-      if (!user.isActive) {
-        res.status(401).json({
-          success: false,
-          message: 'User account is deactivated',
-        });
-        return;
-      }
-
-      req.user = user;
-      req.userId = user._id.toString();
-      next();
-    } catch (error) {
-      logger.error('Token verification error:', error);
-      res.status(401).json({
-        success: false,
-        message: 'Invalid token',
+    let user = await User.findOne({ email: DEFAULT_USER_EMAIL });
+    if (!user) {
+      const randomPassword = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+      user = await User.create({
+        email: DEFAULT_USER_EMAIL,
+        password: randomPassword,
+        name: 'Guest User',
+        role: 'admin',
+        subscription: { plan: 'enterprise', status: 'active' },
+        isActive: true,
       });
     }
+
+    defaultUser = user;
+    return user;
   } catch (error) {
-    logger.error('Auth middleware error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-    });
+    logger.error('Failed to get default guest user:', error);
+    return null;
   }
 };
 
-export const authorize = (...roles: string[]) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      res.status(401).json({
-        success: false,
-        message: 'Not authorized',
-      });
-      return;
-    }
+export const protect = async (
+  _req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  next();
+};
 
-    if (!roles.includes(req.user.role)) {
-      res.status(403).json({
-        success: false,
-        message: `User role '${req.user.role}' is not authorized to access this route`,
-      });
-      return;
+export const authenticate = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const user = await getDefaultUser();
+    if (user) {
+      req.user = user;
+      req.userId = user._id.toString();
     }
+    next();
+  } catch (error) {
+    logger.error('Authentication middleware error:', error);
+    next();
+  }
+};
 
+export const authorize = (..._roles: string[]) => {
+  return (_req: Request, _res: Response, next: NextFunction): void => {
     next();
   };
 };
 
-export const checkSubscription = (requiredPlan: string[]) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      res.status(401).json({
-        success: false,
-        message: 'Not authorized',
-      });
-      return;
-    }
-
-    if (!requiredPlan.includes(req.user.subscription.plan)) {
-      res.status(403).json({
-        success: false,
-        message: 'Upgrade your subscription to access this feature',
-        requiredPlan,
-        currentPlan: req.user.subscription.plan,
-      });
-      return;
-    }
-
+export const checkSubscription = (_requiredPlan: string[]) => {
+  return (_req: Request, _res: Response, next: NextFunction): void => {
     next();
   };
 };
-
-// Alias for compatibility
-export const authenticate = protect;

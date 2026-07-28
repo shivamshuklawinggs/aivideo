@@ -2,7 +2,6 @@ import axios, { AxiosInstance } from 'axios';
 import logger from '../config/logger';
 
 export interface OllamaGenerateOptions {
-  model?: string;
   prompt: string;
   system?: string;
   images?: string[]; // base64 encoded images
@@ -39,53 +38,110 @@ export interface OCRResult {
 
 class AIService {
   private client: AxiosInstance;
+  private paddleClient: AxiosInstance;
   private baseUrl: string;
-  private textModel: string;
   private visionModel: string;
+  private ollamaTimeout: number;
+  private visionMaxRetries: number;
 
   constructor() {
     this.baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-    this.textModel = process.env.OLLAMA_MODEL || 'llama3.2:latest';
     this.visionModel = process.env.OLLAMA_VISION_MODEL || 'llava';
+    this.ollamaTimeout = parseInt(process.env.OLLAMA_TIMEOUT || '600000', 10); // default 10 min
+    this.visionMaxRetries = parseInt(process.env.OLLAMA_VISION_RETRIES || '3', 10);
 
     this.client = axios.create({
       baseURL: this.baseUrl,
-      timeout: 300000, // 5 min for AI ops
+      timeout: this.ollamaTimeout,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
       headers: { 'Content-Type': 'application/json' },
     });
 
-    logger.info(`AI Service initialized: text=${this.textModel}, vision=${this.visionModel}, url=${this.baseUrl}`);
+    const paddleBaseUrl = process.env.PADDLEOCR_API_URL || 'http://localhost:8000';
+    const paddleTimeout = parseInt(process.env.PADDLEOCR_TIMEOUT || '120000', 10);
+    const paddleRetries = parseInt(process.env.PADDLEOCR_RETRIES || '3', 10);
+    this.paddleClient = axios.create({
+      baseURL: paddleBaseUrl,
+      timeout: paddleTimeout,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    logger.info(`AI service initialized: Ollama ${this.baseUrl} (timeout ${this.ollamaTimeout}ms, retries ${this.visionMaxRetries}), PaddleOCR ${paddleBaseUrl} (timeout ${paddleTimeout}ms, retries ${paddleRetries})`);
   }
 
   /**
-   * Generate text response from Ollama
+   * Generate text response from Ollama with retry logic
    */
   async generate(options: OllamaGenerateOptions): Promise<string> {
-    const { model, prompt, system, images, temperature = 0.7, format } = options;
+    const { prompt, system, images, temperature = 0.7, format } = options;
+    const maxRetries = this.visionMaxRetries;
 
-    try {
-      const response = await this.client.post('/api/generate', {
-        model: model || (images?.length ? this.visionModel : this.textModel),
-        prompt,
-        system,
-        images,
-        stream: false,
-        options: {
-          temperature,
-          num_predict: options.maxTokens || 4096,
-        },
-        ...(format ? { format } : {}),
-      });
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const startTime = Date.now();
+      logger.info(
+        `[Ollama] Request attempt ${attempt + 1}/${maxRetries + 1} to ${this.baseUrl}/api/generate ` +
+        `(model: ${this.visionModel}, timeout: ${this.ollamaTimeout}ms, images: ${images?.length || 0}, ` +
+        `promptLength: ${prompt.length}, maxTokens: ${options.maxTokens || 4096})`
+      );
 
-      return response.data.response;
-    } catch (error: any) {
-      logger.error('Ollama generate failed:', error.message);
-      throw new Error(`AI generation failed: ${error.message}`);
+      try {
+        const response = await this.client.post('/api/generate', {
+          model: this.visionModel,
+          prompt,
+          system,
+          images,
+          stream: false,
+          options: {
+            temperature,
+            num_predict: options.maxTokens || 4096,
+          },
+          ...(format ? { format } : {}),
+        });
+
+        const duration = Date.now() - startTime;
+        logger.info(
+          `[Ollama] Response received in ${duration}ms ` +
+          `(model: ${this.visionModel}, evalCount: ${response.data?.eval_count}, responseLength: ${response.data?.response?.length || 0})`
+        );
+
+        return response.data.response;
+      } catch (error: any) {
+        const duration = Date.now() - startTime;
+        const isTimeout = error.code === 'ECONNABORTED' || error.message?.toLowerCase().includes('timeout');
+        const isNetwork = ['ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EPIPE'].includes(error.code);
+        const status = error.response?.status;
+
+        logger.error(`[Ollama] Attempt ${attempt + 1} failed after ${duration}ms`, {
+          code: error.code,
+          message: error.message,
+          status,
+          configTimeout: error.config?.timeout,
+          baseURL: error.config?.baseURL,
+          url: error.config?.url,
+          isTimeout,
+          isNetwork,
+        });
+
+        if (attempt < maxRetries && (isTimeout || isNetwork || status >= 500)) {
+          const delay = Math.min(1000 * Math.pow(2, attempt), 30000); // 1s, 2s, 4s... max 30s
+          logger.warn(`[Ollama] Retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`);
+          await this.sleep(delay);
+          continue;
+        }
+
+        throw new Error(`AI generation failed: ${error.message} (code: ${error.code}, status: ${status})`);
+      }
     }
+
+    throw new Error('AI generation failed after all retries');
   }
 
   /**
-   * Analyze a panel image for visual content
+   * Analyze a panel image for visual content.
+   * Throws on failure so the caller can retry.
    */
   async analyzePanel(imageBase64: string, panelIndex: number): Promise<VisionAnalysisResult> {
     const prompt = `You are analyzing panel ${panelIndex + 1} of a manga/webtoon chapter.
@@ -104,96 +160,79 @@ Analyze this image and extract the following in JSON format:
 Be specific and detailed. If you can't identify a character by name, describe them (e.g., "blonde girl", "tall man in black coat").
 Return ONLY valid JSON, no markdown formatting.`;
 
-    try {
-      const response = await this.generate({
-        model: this.visionModel,
-        prompt,
-        images: [imageBase64],
-        temperature: 0.3,
-        format: 'json',
-      });
+    const response = await this.generate({
+      prompt,
+      images: [imageBase64],
+      temperature: 0.3,
+      format: 'json',
+    });
 
-      const parsed = this.parseJSON<VisionAnalysisResult>(response, {
-        characters: [],
-        actions: [],
-        emotions: [],
-        scene: '',
-        objects: [],
-        importantEvents: [],
-        description: '',
-      });
+    const parsed = this.parseJSON<VisionAnalysisResult>(response, {
+      characters: [],
+      actions: [],
+      emotions: [],
+      scene: '',
+      objects: [],
+      importantEvents: [],
+      description: '',
+    });
 
-      return parsed;
-    } catch (error: any) {
-      logger.error(`Vision analysis failed for panel ${panelIndex}:`, error.message);
-      return {
-        characters: [],
-        actions: [],
-        emotions: [],
-        scene: 'Analysis failed',
-        objects: [],
-        importantEvents: [],
-        description: `Failed to analyze panel ${panelIndex + 1}: ${error.message}`,
-      };
-    }
+    logger.info(`Vision analysis parsed for panel ${panelIndex + 1}: ${parsed.description?.slice(0, 80) || '(empty)'}...`);
+    return parsed;
   }
 
   /**
-   * Extract text (OCR) from a panel image
+   * Extract text (OCR) from a panel image using the PaddleOCR Python API.
+   * Retries on transient errors, but returns an empty fallback if OCR is unavailable.
    */
   async extractText(imageBase64: string, panelIndex: number): Promise<OCRResult> {
-    const prompt = `You are performing OCR on panel ${panelIndex + 1} of a manga/webtoon.
+    const maxRetries = parseInt(process.env.PADDLEOCR_RETRIES || '3', 10);
 
-Extract ALL text visible in this image and categorize it into JSON format:
-{
-  "speech": ["dialogue text in speech bubbles"],
-  "narration": ["narration boxes or thought bubbles"],
-  "captions": ["captions, labels, or signs"],
-  "soundEffects": ["onomatopoeia and sound effects like BOOM, CRASH, etc"],
-  "rawText": "all text concatenated in reading order"
-}
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`[OCR] Request attempt ${attempt + 1}/${maxRetries + 1} for panel ${panelIndex + 1}`);
+        const response = await this.paddleClient.post('/ocr/base64', { image: imageBase64 });
+        const data = response.data;
+        const rawText = data?.text || '';
+        const lines: string[] = (data?.lines || [])
+          .map((line: any) => line.text?.trim())
+          .filter(Boolean);
 
-Rules:
-- Include ALL visible text, even if partially obscured
-- Maintain reading order (top-to-bottom, right-to-left for manga, left-to-right for webtoon)
-- Clean up any OCR artifacts
-- If no text is visible in a category, return an empty array
-Return ONLY valid JSON, no markdown formatting.`;
-
-    try {
-      const response = await this.generate({
-        model: this.visionModel,
-        prompt,
-        images: [imageBase64],
-        temperature: 0.2,
-        format: 'json',
-      });
-
-      const parsed = this.parseJSON<OCRResult>(response, {
-        speech: [],
-        narration: [],
-        captions: [],
-        soundEffects: [],
-        rawText: '',
-      });
-
-      return parsed;
-    } catch (error: any) {
-      logger.error(`OCR extraction failed for panel ${panelIndex}:`, error.message);
-      return {
-        speech: [],
-        narration: [],
-        captions: [],
-        soundEffects: [],
-        rawText: '',
-      };
+        logger.info(`[OCR] Panel ${panelIndex + 1} extracted ${lines.length} lines`);
+        return {
+          speech: lines,
+          narration: [],
+          captions: [],
+          soundEffects: [],
+          rawText,
+        };
+      } catch (error: any) {
+        logger.error(`[OCR] Attempt ${attempt + 1} failed for panel ${panelIndex + 1}:`, error.message);
+        if (attempt < maxRetries) {
+          const delay = 1000 * Math.pow(2, attempt);
+          logger.warn(`[OCR] Retrying in ${delay}ms...`);
+          await this.sleep(delay);
+        }
+      }
     }
+
+    logger.warn(`[OCR] All attempts failed for panel ${panelIndex + 1}, returning empty OCR result`);
+    return {
+      speech: [],
+      narration: [],
+      captions: [],
+      soundEffects: [],
+      rawText: '',
+    };
   }
 
   /**
    * Generate a coherent story from panel analyses
    */
-  async generateStory(panels: Array<{ ocr: OCRResult; vision: VisionAnalysisResult; panelIndex: number }>): Promise<{
+  async generateStory(
+    panels: Array<{ ocr: OCRResult; vision: VisionAnalysisResult; panelIndex: number }>,
+    combinedOcrText?: string
+  ): Promise<{
     title: string;
     narrative: string;
     summary: string;
@@ -203,15 +242,20 @@ Return ONLY valid JSON, no markdown formatting.`;
       const textContent = [
         ...p.ocr.speech.map(s => `"${s}"`),
         ...p.ocr.narration,
-      ].join(' ');
+        p.ocr.rawText,
+      ].filter(Boolean).join(' ');
       return `Panel ${i + 1}: ${p.vision.description}${textContent ? ` | Text: ${textContent}` : ''}`;
     }).join('\n');
+
+    const combinedSection = combinedOcrText
+      ? `Combined OCR text from all panels:\n${combinedOcrText}\n\n`
+      : '';
 
 const prompt = `आप एक अनुभवी हिंदी कहानीकार (Story Writer) और नैरेटर हैं।
 
 नीचे दिए गए Manga/Webtoon Panels के विश्लेषण के आधार पर पूरी कहानी हिंदी में लिखें।
 
-PANEL ANALYSES:
+${combinedSection}PANEL ANALYSES:
 ${panelSummaries}
 
 नीचे दिए गए JSON Format में उत्तर दें:
@@ -270,6 +314,10 @@ Return ONLY valid JSON.`;
       logger.error('AI health check failed:', error.message);
       return { healthy: false, models: [] };
     }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

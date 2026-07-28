@@ -1,51 +1,51 @@
 services:
   # ─── MongoDB ───────────────────────────────────────────────────────
-  mongodb:
-    image: mongo:7
-    container_name: mongodb
-    environment:
-      MONGO_INITDB_DATABASE: webtoon_explainer
-    ports:
-      - "27017:27017"
-    restart: unless-stopped
-    volumes:
-      - mongodb_data:/data/db
-    networks:
-      - ai-network
+  # mongodb:
+  #   image: mongo:7
+  #   container_name: mongodb
+  #   environment:
+  #     MONGO_INITDB_DATABASE: webtoon_explainer
+  #   ports:
+  #     - "27017:27017"
+  #   restart: unless-stopped
+  #   volumes:
+  #     - mongodb_data:/data/db
+  #   networks:
+  #     - ai-network
 
   # ─── Redis ─────────────────────────────────────────────────────────
-  redis:
-    image: redis:latest
-    container_name: redis
-    command:
-      - redis-server
-      - --bind
-      - 0.0.0.0
-      - --requirepass
-      - redis123
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    networks:
-      - ai-network
+  # redis:
+  #   image: redis:latest
+  #   container_name: redis
+  #   command:
+  #     - redis-server
+  #     - --bind
+  #     - 0.0.0.0
+  #     - --requirepass
+  #     - redis123
+  #   ports:
+  #     - "6379:6379"
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - ai-network
 
   # ─── RabbitMQ ──────────────────────────────────────────────────────
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: admin
-      RABBITMQ_DEFAULT_PASS: admin123
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    restart: unless-stopped
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - ai-network
+  # rabbitmq:
+  #   image: rabbitmq:3-management
+  #   container_name: rabbitmq
+  #   environment:
+  #     RABBITMQ_DEFAULT_USER: admin
+  #     RABBITMQ_DEFAULT_PASS: admin123
+  #   ports:
+  #     - "5672:5672"
+  #     - "15672:15672"
+  #   restart: unless-stopped
+  #   volumes:
+  #     - rabbitmq_data:/var/lib/rabbitmq
+  #   networks:
+  #     - ai-network
 
   # ─── MinIO (S3 Storage) ────────────────────────────────────────────
   minio:
@@ -66,7 +66,7 @@ services:
 
   # ─── Suwayomi (Manga Source) ───────────────────────────────────────
   suwayomi:
-    image: ghcr.io/suwayomi/suwayomi-server:preview
+    image: ghcr.io/suwayomi/tachidesk:latest
     container_name: suwayomi
     environment:
       - TZ=Etc/UTC
@@ -94,28 +94,20 @@ services:
       - ai-network
 
   # ─── Ollama (Local AI) ─────────────────────────────────────────────
-  # ollama:
-  #   image: ollama/ollama:latest
-  #   container_name: ollama
-  #   ports:
-  #     - "11434:11434"
-  #   restart: unless-stopped
-  #   volumes:
-  #     - ollama_data:/root/.ollama
-  #   networks:
-  #     - ai-network
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
-
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - ai-network
 volumes:
-  mongodb_data:
-  redis_data:
-  rabbitmq_data:
+  # mongodb_data:
+  # redis_data:
+  # rabbitmq_data:
   minio_data:
   suwayomi_data:
   ollama_data:
