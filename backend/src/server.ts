@@ -1,4 +1,5 @@
 import express, { Application } from 'express';
+import { createServer } from 'http';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -16,6 +17,7 @@ import VoiceRecordingRoutes from './routes/voiceRecording';
 import UploadRoutes from './routes/upload';
 import PipelineRoutes from './routes/pipeline';
 import { initializeRabbitMQSystem } from './config/rabbitmq';
+import socketService from './services/socketService';
 
 dotenv.config();
 
@@ -95,7 +97,11 @@ const startServer = async () => {
 
   
 
-    app.listen(PORT, () => {
+    const httpServer = createServer(app);
+
+    socketService.initialize(httpServer);
+
+    httpServer.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);
       logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
     });

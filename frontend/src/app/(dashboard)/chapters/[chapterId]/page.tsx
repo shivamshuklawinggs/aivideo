@@ -1,9 +1,9 @@
 'use client';
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Box, Typography, Card, CardContent, Grid, Chip, Button,
   LinearProgress, Stepper, Step, StepLabel, StepContent, Alert,
-  CircularProgress, Divider,
+  CircularProgress, Divider, ToggleButtonGroup, ToggleButton,
 } from '@mui/material';
 import {
   ArrowBack, CheckCircle, AutoFixHigh, MenuBook,
@@ -14,6 +14,7 @@ import { toast } from 'react-toastify';
 import { useRouter, useParams } from 'next/navigation';
 import { sukuyamiApi } from '@/services/api/sukuyamiApi';
 import { pipelineApi, JobStatus } from '@/services/api/pipelineApi';
+import { usePipelineSocket } from '@/hooks/usePipelineSocket';
 import VideoEditor from '@/components/videoEditor/VideoEditor';
 
 export default function ChapterDetailPage() {
@@ -23,8 +24,11 @@ export default function ChapterDetailPage() {
 
   const [activeStep, setActiveStep] = useState(0);
   const [pipelineStatus, setPipelineStatus] = useState<string>('idle');
+  const [pipelineMode, setPipelineMode] = useState<'manual' | 'auto'>('manual');
   const [currentJob, setCurrentJob] = useState<JobStatus | null>(null);
   const [storyData, setStoryData] = useState<any>(null);
+
+  const socketState = usePipelineSocket(chapterId, currentJob?.jobId);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['chapter', chapterId],
@@ -79,6 +83,19 @@ export default function ChapterDetailPage() {
       setPipelineStatus('error');
     }
   }, [chapterId, mangaId, refetchResult]);
+
+  // Override status when Socket.IO reports completion or failure in real time
+  useEffect(() => {
+    if (socketState.status === 'completed' && pipelineStatus !== 'complete') {
+      setPipelineStatus('complete');
+      setActiveStep(4);
+      refetchResult();
+      toast.success('Pipeline complete (real-time)');
+    } else if (socketState.status === 'error' && !pipelineStatus.includes('error')) {
+      setPipelineStatus('error');
+      toast.error('Pipeline reported an error. Check live log.');
+    }
+  }, [socketState.status, pipelineStatus, refetchResult]);
 
   // Pipeline Step 2: Story
   const handleStory = useCallback(async () => {
@@ -167,7 +184,11 @@ export default function ChapterDetailPage() {
   if (error) return <Box sx={{ p: 3 }}><Typography color="error">Failed to load chapter</Typography></Box>;
   if (!chapter) return null;
 
-  const isProcessing = ['analyzing', 'generating_story', 'generating_narration', 'generating_video'].includes(pipelineStatus);
+  const isProcessing = ['analyzing', 'generating_story', 'generating_narration', 'generating_video'].includes(pipelineStatus) ||
+    (socketState.status === 'processing' && !['complete', 'error'].includes(pipelineStatus));
+
+  const displayProgress = Math.max(currentJob?.progress || 0, socketState.progress || 0);
+  const displayStep = socketState.step || currentJob?.currentStep || '';
 
   return (
     <Box sx={{ flexGrow: 1 }}>
@@ -246,28 +267,76 @@ export default function ChapterDetailPage() {
                 <AutoFixHigh /> AI Pipeline
               </Typography>
 
-              <Button
+              <ToggleButtonGroup
+                value={pipelineMode}
+                exclusive
                 fullWidth
-                variant="contained"
-                color="secondary"
-                startIcon={isProcessing ? <CircularProgress size={16} color="inherit" /> : <PlayArrow />}
-                onClick={handleFullPipeline}
-                disabled={isProcessing || !pagesData?.pages?.length}
+                size="small"
+                onChange={(_, value) => value && setPipelineMode(value)}
                 sx={{ mb: 2 }}
               >
-                {isProcessing ? 'Processing...' : 'Run Full Pipeline'}
-              </Button>
+                <ToggleButton value="manual">Manual</ToggleButton>
+                <ToggleButton value="auto">Auto (Socket.IO)</ToggleButton>
+              </ToggleButtonGroup>
 
-              {currentJob && isProcessing && (
+              {pipelineMode === 'auto' && (
+                <Button
+                  fullWidth
+                  variant="contained"
+                  color="secondary"
+                  startIcon={isProcessing ? <CircularProgress size={16} color="inherit" /> : <PlayArrow />}
+                  onClick={handleFullPipeline}
+                  disabled={isProcessing || !pagesData?.pages?.length}
+                  sx={{ mb: 2 }}
+                >
+                  {isProcessing ? 'Processing...' : 'Run Full Pipeline'}
+                </Button>
+              )}
+
+              {isProcessing && (
                 <Box sx={{ mb: 2 }}>
-                  <LinearProgress variant="determinate" value={currentJob.progress} sx={{ mb: 0.5 }} />
+                  <LinearProgress variant="determinate" value={displayProgress} sx={{ mb: 0.5 }} />
                   <Typography variant="caption" color="textSecondary">
-                    {currentJob.currentStep?.replace(/_/g, ' ')} — {currentJob.progress}%
+                    {displayStep.replace(/_/g, ' ')} — {displayProgress}% {socketState.connected ? '(live)' : '(reconnecting)'}
                   </Typography>
                 </Box>
               )}
 
+              {socketState.events.length > 0 && (
+                <Card variant="outlined" sx={{ mb: 2, maxHeight: 200, overflow: 'auto' }}>
+                  <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
+                    <Typography variant="subtitle2" gutterBottom>Live log</Typography>
+                    {socketState.events.slice(-8).map((ev, i) => (
+                      <Box key={i} sx={{ mb: 0.5 }}>
+                        <Typography variant="caption" color="textSecondary" component="span">
+                          {ev.time.toLocaleTimeString()} —
+                        </Typography>
+                        <Typography variant="caption" component="span" sx={{ ml: 0.5 }}>
+                          {ev.event}
+                        </Typography>
+                        {ev.data?.panelIndex !== undefined && (
+                          <Typography variant="caption" color="textSecondary" component="span" sx={{ ml: 0.5 }}>
+                            (panel {ev.data.panelIndex + 1})
+                          </Typography>
+                        )}
+                        {ev.data?.error && (
+                          <Typography variant="caption" color="error" component="div" sx={{ ml: 2 }}>
+                            {ev.data.error}
+                          </Typography>
+                        )}
+                      </Box>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
               <Divider sx={{ my: 2 }} />
+
+              {pipelineMode === 'manual' && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Manual mode: run each pipeline step one by one.
+                </Alert>
+              )}
 
               <Stepper activeStep={activeStep} orientation="vertical">
                 <Step>
@@ -276,7 +345,7 @@ export default function ChapterDetailPage() {
                     <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
                       OCR + Vision analysis on {pagesData?.pages?.length || 0} panels
                     </Typography>
-                    <Button size="small" variant="outlined" startIcon={<AutoFixHigh />} onClick={handleAnalyze} disabled={isProcessing}>
+                    <Button size="small" variant="outlined" startIcon={<AutoFixHigh />} onClick={handleAnalyze} disabled={isProcessing || pipelineMode === 'auto'}>
                       Analyze
                     </Button>
                   </StepContent>
@@ -287,7 +356,7 @@ export default function ChapterDetailPage() {
                     <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
                       Create narrative from panel analyses
                     </Typography>
-                    <Button size="small" variant="outlined" startIcon={<MenuBook />} onClick={handleStory} disabled={isProcessing}>
+                    <Button size="small" variant="outlined" startIcon={<MenuBook />} onClick={handleStory} disabled={isProcessing || pipelineMode === 'auto' || activeStep < 1}>
                       Generate
                     </Button>
                   </StepContent>
@@ -298,7 +367,7 @@ export default function ChapterDetailPage() {
                     <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
                       TTS voice, timeline, SRT/VTT subtitles
                     </Typography>
-                    <Button size="small" variant="outlined" startIcon={<RecordVoiceOver />} onClick={handleNarration} disabled={isProcessing}>
+                    <Button size="small" variant="outlined" startIcon={<RecordVoiceOver />} onClick={handleNarration} disabled={isProcessing || pipelineMode === 'auto' || activeStep < 2}>
                       Narrate
                     </Button>
                   </StepContent>
@@ -309,7 +378,7 @@ export default function ChapterDetailPage() {
                     <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
                       FFmpeg render with effects + audio
                     </Typography>
-                    <Button size="small" variant="outlined" startIcon={<Movie />} onClick={handleVideo} disabled={isProcessing}>
+                    <Button size="small" variant="outlined" startIcon={<Movie />} onClick={handleVideo} disabled={isProcessing || pipelineMode === 'auto' || activeStep < 3}>
                       Render
                     </Button>
                   </StepContent>

@@ -7,7 +7,7 @@ const options = {
     info: {
       title: 'Explainer API',
       version: '1.0.0',
-      description: 'Backend API for Explainer application',
+      description: 'Backend API for Explainer application. Real-time pipeline updates are delivered through a Socket.IO connection. Clients should connect to the same API origin and emit subscribe with chapterId and/or jobId. See GET /api/pipeline/socket/events for the event schema.',
       contact: {
         name: 'API Support',
         email: 'support@example.com',

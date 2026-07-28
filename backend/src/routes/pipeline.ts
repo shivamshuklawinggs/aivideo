@@ -331,4 +331,53 @@ router.post('/webtoon/full', authenticate, pipelineController.runFullPipelineFor
  */
 router.get('/health', pipelineController.healthCheck.bind(pipelineController));
 
+/**
+ * @swagger
+ * /api/pipeline/socket/events:
+ *   get:
+ *     summary: Socket.IO real-time event schema
+ *     description: |
+ *       Returns all Socket.IO event names, payloads, and usage instructions.
+ *       Clients should connect to the API origin via Socket.IO (path /socket.io),
+ *       then emit `subscribe` with `{ chapterId, jobId }` to join the relevant rooms.
+ *     tags: [Pipeline]
+ *     responses:
+ *       200:
+ *         description: Socket.IO event schema
+ */
+router.get('/socket/events', (_req, res) => {
+  res.status(200).json({
+    success: true,
+    data: {
+      connection: {
+        url: process.env.API_URL || 'http://localhost:5000',
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+      },
+      clientActions: [
+        { name: 'subscribe', payload: { chapterId: 'string (optional)', jobId: 'string (optional)' }, description: 'Join chapter or job rooms' },
+        { name: 'unsubscribe', payload: { chapterId: 'string (optional)', jobId: 'string (optional)' }, description: 'Leave chapter or job rooms' },
+      ],
+      serverEvents: [
+        { name: 'socket:connected', payload: { clientId: 'string', timestamp: 'string' }, description: 'Client has connected to the server' },
+        { name: 'socket:joined', payload: { rooms: 'string[]', timestamp: 'string' }, description: 'Acknowledgement of room subscription' },
+        { name: 'pipeline:chapter:started', payload: { chapterId: 'string', jobId: 'string', title: 'string', step: 'string', progress: 'number' }, description: 'Full pipeline started for a chapter' },
+        { name: 'pipeline:chapter:step:started', payload: { chapterId: 'string', jobId: 'string', step: 'string', progress: 'number' }, description: 'A pipeline step has started' },
+        { name: 'pipeline:chapter:step:completed', payload: { chapterId: 'string', jobId: 'string', step: 'string', progress: 'number' }, description: 'A pipeline step has completed' },
+        { name: 'pipeline:chapter:progress', payload: { chapterId: 'string', jobId: 'string', step: 'string', total: 'number', completed: 'number', percentage: 'number' }, description: 'Progress update for a running step' },
+        { name: 'pipeline:chapter:completed', payload: { chapterId: 'string', jobId: 'string', progress: 'number', files: 'object' }, description: 'Full pipeline completed' },
+        { name: 'pipeline:chapter:failed', payload: { chapterId: 'string', jobId: 'string', step: 'string', error: 'string', progress: 'number' }, description: 'Pipeline failed' },
+        { name: 'pipeline:panel:progress', payload: { chapterId: 'string', jobId: 'string', panelIndex: 'number', total: 'number', completed: 'number', percentage: 'number', status: 'string' }, description: 'Panel analysis progress' },
+        { name: 'pipeline:panel:analyzed', payload: { chapterId: 'string', jobId: 'string', panelIndex: 'number', imageUrl: 'string', ocrLines: 'number', descriptionPreview: 'string' }, description: 'Single panel analyzed successfully' },
+        { name: 'pipeline:panel:retry', payload: { chapterId: 'string', jobId: 'string', panelIndex: 'number', attempt: 'number', maxRetries: 'number', error: 'string' }, description: 'Panel analysis retry' },
+        { name: 'pipeline:panel:error', payload: { chapterId: 'string', jobId: 'string', panelIndex: 'number', imageUrl: 'string', error: 'string' }, description: 'Panel analysis failed' },
+        { name: 'ai:request:started', payload: { chapterId: 'string', jobId: 'string', panelIndex: 'number', step: 'string', model: 'string' }, description: 'AI / OCR request started' },
+        { name: 'ai:request:completed', payload: { chapterId: 'string', jobId: 'string', panelIndex: 'number', step: 'string', duration: 'number', lines: 'number' }, description: 'AI / OCR request completed' },
+        { name: 'ai:request:retry', payload: { chapterId: 'string', jobId: 'string', panelIndex: 'number', step: 'string', attempt: 'number', maxRetries: 'number', delay: 'number', error: 'object' }, description: 'AI / OCR request retry' },
+        { name: 'ai:request:error', payload: { chapterId: 'string', jobId: 'string', panelIndex: 'number', step: 'string', error: 'string', code: 'string' }, description: 'AI / OCR request failed' },
+      ],
+    },
+  });
+});
+
 export default router;

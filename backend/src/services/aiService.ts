@@ -1,5 +1,13 @@
 import axios, { AxiosInstance } from 'axios';
 import logger from '../config/logger';
+import socketService from './socketService';
+
+export interface AIGenerateContext {
+  jobId?: string;
+  chapterId?: string;
+  panelIndex?: number;
+  step?: string;
+}
 
 export interface OllamaGenerateOptions {
   prompt: string;
@@ -8,6 +16,7 @@ export interface OllamaGenerateOptions {
   temperature?: number;
   maxTokens?: number;
   format?: 'json' | '';
+  context?: AIGenerateContext;
 }
 
 export interface OllamaResponse {
@@ -76,8 +85,17 @@ class AIService {
    * Generate text response from Ollama with retry logic
    */
   async generate(options: OllamaGenerateOptions): Promise<string> {
-    const { prompt, system, images, temperature = 0.7, format } = options;
+    const { prompt, system, images, temperature = 0.7, format, context } = options;
     const maxRetries = this.visionMaxRetries;
+    const { jobId, chapterId, panelIndex, step } = context || {};
+
+    socketService.emitToContext({ jobId, chapterId }, 'ai:request:started', {
+      chapterId,
+      panelIndex,
+      step: step || 'vision',
+      model: this.visionModel,
+      timestamp: new Date().toISOString(),
+    });
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const startTime = Date.now();
@@ -107,6 +125,16 @@ class AIService {
           `(model: ${this.visionModel}, evalCount: ${response.data?.eval_count}, responseLength: ${response.data?.response?.length || 0})`
         );
 
+        socketService.emitToContext({ jobId, chapterId }, 'ai:request:completed', {
+          chapterId,
+          panelIndex,
+          step: step || 'vision',
+          model: this.visionModel,
+          duration,
+          evalCount: response.data?.eval_count,
+          timestamp: new Date().toISOString(),
+        });
+
         return response.data.response;
       } catch (error: any) {
         const duration = Date.now() - startTime;
@@ -128,9 +156,37 @@ class AIService {
         if (attempt < maxRetries && (isTimeout || isNetwork || status >= 500)) {
           const delay = Math.min(1000 * Math.pow(2, attempt), 30000); // 1s, 2s, 4s... max 30s
           logger.warn(`[Ollama] Retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`);
+
+          socketService.emitToContext({ jobId, chapterId }, 'ai:request:retry', {
+            chapterId,
+            panelIndex,
+            step: step || 'vision',
+            attempt: attempt + 1,
+            maxRetries: maxRetries + 1,
+            delay,
+            error: {
+              code: error.code,
+              message: error.message,
+              isTimeout,
+              isNetwork,
+              status,
+            },
+            timestamp: new Date().toISOString(),
+          });
+
           await this.sleep(delay);
           continue;
         }
+
+        socketService.emitToContext({ jobId, chapterId }, 'ai:request:error', {
+          chapterId,
+          panelIndex,
+          step: step || 'vision',
+          error: error.message,
+          code: error.code,
+          status,
+          timestamp: new Date().toISOString(),
+        });
 
         throw new Error(`AI generation failed: ${error.message} (code: ${error.code}, status: ${status})`);
       }
@@ -143,7 +199,11 @@ class AIService {
    * Analyze a panel image for visual content.
    * Throws on failure so the caller can retry.
    */
-  async analyzePanel(imageBase64: string, panelIndex: number): Promise<VisionAnalysisResult> {
+  async analyzePanel(
+    imageBase64: string,
+    panelIndex: number,
+    context?: AIGenerateContext
+  ): Promise<VisionAnalysisResult> {
     const prompt = `You are analyzing panel ${panelIndex + 1} of a manga/webtoon chapter.
 
 Analyze this image and extract the following in JSON format:
@@ -158,13 +218,14 @@ Analyze this image and extract the following in JSON format:
 }
 
 Be specific and detailed. If you can't identify a character by name, describe them (e.g., "blonde girl", "tall man in black coat").
-Return ONLY valid JSON, no markdown formatting.`;
+Return ONLY valid JSON, no markdown formatting. All text fields must be in English (use English transliterations for names when needed).`;
 
     const response = await this.generate({
       prompt,
       images: [imageBase64],
       temperature: 0.3,
       format: 'json',
+      context: { ...context, panelIndex, step: 'vision' },
     });
 
     const parsed = this.parseJSON<VisionAnalysisResult>(response, {
@@ -185,8 +246,21 @@ Return ONLY valid JSON, no markdown formatting.`;
    * Extract text (OCR) from a panel image using the PaddleOCR Python API.
    * Retries on transient errors, but returns an empty fallback if OCR is unavailable.
    */
-  async extractText(imageBase64: string, panelIndex: number): Promise<OCRResult> {
+  async extractText(
+    imageBase64: string,
+    panelIndex: number,
+    context?: AIGenerateContext
+  ): Promise<OCRResult> {
     const maxRetries = parseInt(process.env.PADDLEOCR_RETRIES || '3', 10);
+
+    const { jobId, chapterId } = context || {};
+
+    socketService.emitToContext({ jobId, chapterId }, 'ai:request:started', {
+      chapterId,
+      panelIndex,
+      step: 'ocr',
+      timestamp: new Date().toISOString(),
+    });
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
@@ -199,6 +273,13 @@ Return ONLY valid JSON, no markdown formatting.`;
           .filter(Boolean);
 
         logger.info(`[OCR] Panel ${panelIndex + 1} extracted ${lines.length} lines`);
+        socketService.emitToContext({ jobId, chapterId }, 'ai:request:completed', {
+          chapterId,
+          panelIndex,
+          step: 'ocr',
+          lines: lines.length,
+          timestamp: new Date().toISOString(),
+        });
         return {
           speech: lines,
           narration: [],
@@ -217,6 +298,13 @@ Return ONLY valid JSON, no markdown formatting.`;
     }
 
     logger.warn(`[OCR] All attempts failed for panel ${panelIndex + 1}, returning empty OCR result`);
+    socketService.emitToContext({ jobId, chapterId }, 'ai:request:error', {
+      chapterId,
+      panelIndex,
+      step: 'ocr',
+      fallback: 'empty',
+      timestamp: new Date().toISOString(),
+    });
     return {
       speech: [],
       narration: [],
@@ -251,35 +339,35 @@ Return ONLY valid JSON, no markdown formatting.`;
       ? `Combined OCR text from all panels:\n${combinedOcrText}\n\n`
       : '';
 
-const prompt = `आप एक अनुभवी हिंदी कहानीकार (Story Writer) और नैरेटर हैं।
+const prompt = `You are an experienced English story writer and narrator.
 
-नीचे दिए गए Manga/Webtoon Panels के विश्लेषण के आधार पर पूरी कहानी हिंदी में लिखें।
+Write the full story of the Manga/Webtoon chapter in English using the panel analyses below.
 
 ${combinedSection}PANEL ANALYSES:
 ${panelSummaries}
 
-नीचे दिए गए JSON Format में उत्तर दें:
+Return ONLY valid JSON with this structure:
 
 {
-  "title": "अध्याय का आकर्षक हिंदी शीर्षक",
-  "narrative": "3-5 पैराग्राफ में पूरी कहानी। ऐसा लगे जैसे किसी उपन्यास या मैनहवा की कहानी सुनाई जा रही हो।",
-  "summary": "2-3 वाक्यों में अध्याय का सारांश।",
-  "narrationScript": "Voice-over के लिए प्राकृतिक हिंदी नैरेशन। हर Panel के अनुसार क्रमवार कहानी सुनाएँ।"
+  "title": "A compelling English chapter title",
+  "narrative": "The complete story in 3-5 paragraphs, written like a novel or webtoon recap.",
+  "summary": "A 2-3 sentence summary of the chapter.",
+  "narrationScript": "A natural English voice-over script. Narrate the story panel by panel in order."
 }
 
-महत्वपूर्ण नियम:
+Important rules:
 
-1. पूरा उत्तर केवल हिंदी (देवनागरी) में होना चाहिए।
-2. अंग्रेज़ी शब्दों का प्रयोग केवल तब करें जब OCR में वही नाम हो (जैसे Sung Jin-Woo, Tokyo आदि)।
-3. OCR के टेक्स्ट को कॉपी-पेस्ट न करें, बल्कि उसका अर्थ समझकर कहानी बनाएं।
-4. सभी Panels को सही क्रम में जोड़कर एक लगातार चलने वाली कहानी लिखें।
-5. पात्रों की भावनाएँ, वातावरण, तनाव, एक्शन और संवादों का स्वाभाविक वर्णन करें।
-6. यदि किसी Panel में संवाद नहीं है, तो दृश्य का वर्णन करें।
-7. narrationScript ऐसा हो जैसे कोई YouTube Story Narrator कहानी सुना रहा हो।
-8. narrationScript में उचित विराम (...) और भावनात्मक उतार-चढ़ाव रखें।
-9. प्रत्येक Panel के लिए लगभग 1-2 वाक्य का नैरेशन लिखें।
-10. यदि OCR गलत या अधूरा हो तो उपलब्ध चित्र के आधार पर सबसे उपयुक्त कहानी बनाएं।
-11. JSON के बाहर कोई अतिरिक्त टेक्स्ट न लिखें।
+1. ALL output must be in English.
+2. Use English transliterations for names when OCR contains them (e.g., "Sung Jin-Woo", "Tokyo").
+3. Do not copy-paste OCR text; understand it and craft the story.
+4. Connect all panels in the correct order into one continuous narrative.
+5. Describe characters' emotions, the environment, tension, action, and dialogues naturally.
+6. If a panel has no dialogue, describe the scene.
+7. The narrationScript should sound like a YouTube Story Narrator.
+8. Include proper pacing (...) and emotional variation in narrationScript.
+9. Write roughly 1-2 sentences of narration per panel.
+10. If OCR is wrong or incomplete, build the best story from the available image description.
+11. Do not write any text outside the JSON.
 
 Return ONLY valid JSON.`;
     try {

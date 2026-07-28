@@ -9,6 +9,7 @@ import timelineService from '../services/timelineService';
 import videoService from '../services/videoService';
 import aiService from '../services/aiService';
 import SukuyamiGraphQLService from '../services/sukuyamiGraphQLService';
+import socketService from '../services/socketService';
 import { rabbitMQService } from '../config/rabbitmq/rabbitmq.service';
 import { EXCHANGE_NAMES, ROUTING_KEYS } from '../config/rabbitmq/constants';
 
@@ -512,10 +513,24 @@ class PipelineController {
 
     logger.info(`[Full Pipeline] Resuming chapter ${chapterId} - ${chapterTitle} (job: ${job._id})`);
 
+    this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:started', {
+      title: chapterTitle,
+      step: 'vision_analysis',
+      progress: job.progress,
+    });
+
     try {
       // 1. Analyze panels (fetch_panels, ocr, vision_analysis)
       if (!this.isStepCompleted(job, 'vision_analysis')) {
+        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:started', {
+          step: 'vision_analysis',
+          progress: job.progress,
+        });
         await this.processAnalysis(job._id.toString(), chapterId, mangaId);
+        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:completed', {
+          step: 'vision_analysis',
+          progress: 25,
+        });
         job = await this.reloadJob(job._id.toString());
         if (this.isJobFailed(job)) throw new Error(job.error || 'Analysis stage failed');
         await this.markJobProcessing(job._id.toString());
@@ -527,9 +542,11 @@ class PipelineController {
 
       // 2. Generate story
       if (!this.isStepCompleted(job, 'story_generation')) {
+        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:started', { step: 'story_generation', progress: 25 });
         await this.updateJobStep(job._id.toString(), 'story_generation', 'processing');
         await storyService.generateStory(chapterId);
         await this.updateJobStep(job._id.toString(), 'story_generation', 'completed', 100);
+        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:completed', { step: 'story_generation', progress: 50 });
       } else {
         logger.info(`[Full Pipeline] Story already completed for chapter ${chapterId}`);
       }
@@ -538,9 +555,11 @@ class PipelineController {
 
       // 3. Generate narration / audio / timeline / subtitles
       if (!this.isStepCompleted(job, 'subtitles')) {
+        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:started', { step: 'narration', progress: 50 });
         await this.processNarration(job._id.toString(), chapterId);
         job = await this.reloadJob(job._id.toString());
         if (this.isJobFailed(job)) throw new Error(job.error || 'Narration stage failed');
+        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:completed', { step: 'narration', progress: 75 });
         await this.markJobProcessing(job._id.toString());
       } else {
         logger.info(`[Full Pipeline] Narration already completed for chapter ${chapterId}`);
@@ -550,9 +569,11 @@ class PipelineController {
 
       // 4. Render final video
       if (!this.isStepCompleted(job, 'video_render')) {
+        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:started', { step: 'video_render', progress: 75 });
         await this.processVideo(job._id.toString(), chapterId, options);
         job = await this.reloadJob(job._id.toString());
         if (this.isJobFailed(job)) throw new Error(job.error || 'Video stage failed');
+        this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:step:completed', { step: 'video_render', progress: 100 });
       } else {
         logger.info(`[Full Pipeline] Video already completed for chapter ${chapterId}`);
       }
@@ -564,6 +585,17 @@ class PipelineController {
       await job.save();
 
       const analysis = await ChapterAnalysis.findOne({ chapterId });
+
+      this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:completed', {
+        progress: 100,
+        files: analysis ? {
+          story: analysis.story,
+          audio: analysis.audioFile,
+          video: analysis.videoFile,
+          thumbnail: analysis.thumbnailFile,
+          subtitle: analysis.subtitleFile,
+        } : undefined,
+      });
 
       return {
         chapterId,
@@ -584,6 +616,12 @@ class PipelineController {
       job.status = 'failed';
       job.error = err.message;
       await job.save();
+
+      this.emitPipelineEvent(job._id.toString(), chapterId, 'pipeline:chapter:failed', {
+        step: job.currentStep,
+        error: err.message,
+        progress: job.progress,
+      });
 
       return {
         chapterId,
@@ -616,6 +654,10 @@ class PipelineController {
     await Job.findByIdAndUpdate(jobId, {
       $set: { status: 'processing' },
     });
+  }
+
+  private emitPipelineEvent(jobId: string, chapterId: string, event: string, data: any = {}) {
+    socketService.emitToContext({ jobId, chapterId }, event, { ...data, chapterId, jobId });
   }
 
   private async getOrCreateFullPipelineJob(
@@ -682,6 +724,8 @@ class PipelineController {
       job.currentStep = 'fetch_panels' as PipelineStep;
       await job.save();
 
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:started', { step: 'vision_analysis' });
+
       // Update step statuses as we progress
       await this.updateJobStep(jobId, 'fetch_panels', 'processing');
 
@@ -692,6 +736,10 @@ class PipelineController {
         (progress) => {
           // Progress callback - could emit SSE/WS event here
           logger.debug(`Analysis progress: ${progress.percentage}%`);
+          this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:progress', {
+            step: 'vision_analysis',
+            ...progress,
+          });
         }
       );
 
@@ -705,11 +753,13 @@ class PipelineController {
       job.result = { storyFile: `chapters/${chapterId}/analysis.json` };
       await job.save();
 
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:completed', { step: 'vision_analysis', progress: 100, panels: panels.length });
       logger.info(`Analysis job ${jobId} completed: ${panels.length} panels`);
     } catch (error: any) {
       job.status = 'failed';
       job.error = error.message;
       await job.save();
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:failed', { step: 'vision_analysis', error: error.message });
       logger.error(`Analysis job ${jobId} failed:`, error.message);
     }
   }
@@ -726,6 +776,8 @@ class PipelineController {
       job.startedAt = new Date();
       job.currentStep = 'voice_generation' as PipelineStep;
       await job.save();
+
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:started', { step: 'narration' });
 
       // Step 1: Get narration segments
       await this.updateJobStep(jobId, 'voice_generation', 'processing');
@@ -774,11 +826,13 @@ class PipelineController {
       };
       await job.save();
 
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:completed', { step: 'narration', duration: ttsResult.totalDuration });
       logger.info(`Narration job ${jobId} completed: ${ttsResult.totalDuration.toFixed(1)}s`);
     } catch (error: any) {
       job.status = 'failed';
       job.error = error.message;
       await job.save();
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:failed', { step: 'narration', error: error.message });
       logger.error(`Narration job ${jobId} failed:`, error.message);
     }
   }
@@ -796,6 +850,8 @@ class PipelineController {
       job.currentStep = 'video_render' as PipelineStep;
       await job.save();
 
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:started', { step: 'video_render' });
+
       await this.updateJobStep(jobId, 'video_render', 'processing');
 
       const result = await videoService.generateVideo(chapterId, options || {});
@@ -811,11 +867,13 @@ class PipelineController {
       };
       await job.save();
 
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:step:completed', { step: 'video_render', videoFile: result.videoPath, thumbnailFile: result.thumbnailPath });
       logger.info(`Video job ${jobId} completed: ${result.videoPath}`);
     } catch (error: any) {
       job.status = 'failed';
       job.error = error.message;
       await job.save();
+      this.emitPipelineEvent(jobId, chapterId, 'pipeline:chapter:failed', { step: 'video_render', error: error.message });
       logger.error(`Video job ${jobId} failed:`, error.message);
     }
   }

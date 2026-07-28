@@ -1,6 +1,7 @@
 import axios from 'axios';
 import logger from '../config/logger';
 import aiService from './aiService';
+import socketService from './socketService';
 import SukuyamiGraphQLService from './sukuyamiGraphQLService';
 import ChapterAnalysis, { IPanelAnalysis } from '../models/ChapterAnalysis';
 import Job from '../models/Job';
@@ -84,18 +85,49 @@ class PanelAnalysisService {
    * Analyze a single panel (OCR + Vision) with retries.
    * Throws if vision analysis cannot be completed so the chapter job can be marked failed and resumed.
    */
-  async analyzeSinglePanel(imageUrl: string, panelIndex: number): Promise<IPanelAnalysis> {
+  async analyzeSinglePanel(
+    imageUrl: string,
+    panelIndex: number,
+    chapterId?: string,
+    jobId?: string
+  ): Promise<IPanelAnalysis> {
+    const ctx = { chapterId, jobId, panelIndex };
+
     for (let attempt = 0; attempt <= this.panelMaxRetries; attempt++) {
       try {
         logger.info(`[Panel ${panelIndex + 1}] Analysis attempt ${attempt + 1}/${this.panelMaxRetries + 1} for ${imageUrl}`);
 
+        socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:progress', {
+          ...ctx,
+          imageUrl,
+          status: 'downloading',
+          attempt: attempt + 1,
+          timestamp: new Date().toISOString(),
+        });
+
         const imageBase64 = await this.downloadPanelAsBase64(imageUrl);
+
+        socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:progress', {
+          ...ctx,
+          imageUrl,
+          status: 'analyzing',
+          attempt: attempt + 1,
+          timestamp: new Date().toISOString(),
+        });
 
         // Run OCR and Vision in parallel
         const [ocr, vision] = await Promise.all([
-          aiService.extractText(imageBase64, panelIndex),
-          aiService.analyzePanel(imageBase64, panelIndex),
+          aiService.extractText(imageBase64, panelIndex, ctx),
+          aiService.analyzePanel(imageBase64, panelIndex, ctx),
         ]);
+
+        socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:analyzed', {
+          ...ctx,
+          imageUrl,
+          ocrLines: ocr.rawText ? ocr.rawText.split('\n').length : 0,
+          descriptionPreview: vision.description?.slice(0, 80),
+          timestamp: new Date().toISOString(),
+        });
 
         logger.info(`[Panel ${panelIndex + 1}] Analysis succeeded`);
         return {
@@ -107,11 +139,26 @@ class PanelAnalysisService {
       } catch (error: any) {
         logger.error(`[Panel ${panelIndex + 1}] Analysis attempt ${attempt + 1} failed:`, error.message);
 
+        socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:retry', {
+          ...ctx,
+          imageUrl,
+          attempt: attempt + 1,
+          maxRetries: this.panelMaxRetries + 1,
+          error: error.message,
+          timestamp: new Date().toISOString(),
+        });
+
         if (attempt < this.panelMaxRetries) {
           const delay = this.panelRetryDelayMs * Math.pow(2, attempt);
           logger.warn(`[Panel ${panelIndex + 1}] Retrying in ${delay}ms...`);
           await this.sleep(delay);
         } else {
+          socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:error', {
+            ...ctx,
+            imageUrl,
+            error: error.message,
+            timestamp: new Date().toISOString(),
+          });
           throw new Error(`Panel ${panelIndex + 1} analysis failed after ${this.panelMaxRetries + 1} attempts: ${error.message}`);
         }
       }
@@ -159,12 +206,23 @@ class PanelAnalysisService {
     const results: IPanelAnalysis[] = [];
     let completed = 0;
 
+    socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:progress', {
+      chapterId,
+      jobId,
+      total,
+      completed: 0,
+      current: 0,
+      percentage: 0,
+      status: 'started',
+      timestamp: new Date().toISOString(),
+    });
+
     // Process in batches
     for (let i = 0; i < total; i += this.batchSize) {
       const batch = panelUrls.slice(i, i + this.batchSize);
       const batchPromises = batch.map((url, batchIdx) => {
         const panelIndex = i + batchIdx;
-        return this.analyzeSinglePanel(url, panelIndex);
+        return this.analyzeSinglePanel(url, panelIndex, chapterId, jobId);
       });
 
       // Process batch with concurrency limit
@@ -181,6 +239,14 @@ class PanelAnalysisService {
       };
 
       if (onProgress) onProgress(progress);
+
+      socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:progress', {
+        ...progress,
+        chapterId,
+        jobId,
+        status: 'in_progress',
+        timestamp: new Date().toISOString(),
+      });
 
       // Update job progress if tracking
       if (jobId) {
@@ -204,10 +270,28 @@ class PanelAnalysisService {
     analysis.status = 'analyzed';
     await analysis.save();
 
+    socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:progress', {
+      chapterId,
+      jobId,
+      total,
+      completed: total,
+      current: total,
+      percentage: 100,
+      status: 'completed',
+      timestamp: new Date().toISOString(),
+    });
+
     logger.info(`Completed analysis of ${total} panels for chapter ${chapterId}`);
     return results;
   } catch (error: any) {
     logger.error(`Chapter ${chapterId} analysis failed:`, error.message);
+
+    socketService.emitToContext({ jobId, chapterId }, 'pipeline:panel:error', {
+      chapterId,
+      jobId,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
 
     const analysis = await ChapterAnalysis.findOne({ chapterId });
     if (analysis) {
