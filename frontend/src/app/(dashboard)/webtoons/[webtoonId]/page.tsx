@@ -22,7 +22,7 @@ export default function WebtoonDetailPage() {
   if (isLoading) return <Box sx={{ width: '100%', mt: 2 }}><LinearProgress /></Box>;
   if (error) return <Box sx={{ p: 3 }}><Typography color="error">Failed to load webtoon</Typography></Box>;
 
-  const webtoon = data?.webtoon ?? data;
+  const webtoon = data;
   if (!webtoon) return null;
 
   return (
@@ -34,10 +34,10 @@ export default function WebtoonDetailPage() {
       <Grid container spacing={3}>
         <Grid item xs={12} md={4}>
           <Card>
-            <CardMedia component="img" image={webtoon.coverImage || '/placeholder.jpg'} alt={webtoon.title} sx={{ height: 400, objectFit: 'cover' }} />
+            <CardMedia component="img" image={webtoon.thumbnailUrl || '/placeholder.jpg'} alt={webtoon.title} sx={{ height: 400, objectFit: 'cover' }} />
             <CardContent>
               <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
-                {webtoon.genres?.map((g: string) => <Chip key={g} label={g} size="small" variant="outlined" />)}
+                {webtoon.genre?.map((g: string) => <Chip key={g} label={g} size="small" variant="outlined" />)}
               </Box>
               <Button fullWidth variant="contained" startIcon={<Sync />} sx={{ mb: 1 }} onClick={() => router.push(`/webtoons/${webtoonId}/chapters`)}>
                 View Chapters
@@ -59,22 +59,22 @@ export default function WebtoonDetailPage() {
                 <Grid item xs={6} sm={3}>
                   <Box textAlign="center">
                     <Avatar sx={{ bgcolor: 'primary.main', mx: 'auto', mb: 1 }}><Book /></Avatar>
-                    <Typography variant="h5">{webtoon.totalChapters}</Typography>
+                    <Typography variant="h5">{webtoon.chapters?.totalCount ?? 0}</Typography>
                     <Typography variant="caption" color="textSecondary">Chapters</Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={6} sm={3}>
                   <Box textAlign="center">
                     <Avatar sx={{ bgcolor: 'warning.main', mx: 'auto', mb: 1 }}><VideoLibrary /></Avatar>
-                    <Typography variant="h5">{webtoon.sukuyamiData?.rating?.toFixed(1) || 'N/A'}</Typography>
-                    <Typography variant="caption" color="textSecondary">Rating</Typography>
+                    <Typography variant="h5">{webtoon.unreadCount ?? 0}</Typography>
+                    <Typography variant="caption" color="textSecondary">Unread</Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={6} sm={3}>
                   <Box textAlign="center">
                     <Avatar sx={{ bgcolor: 'info.main', mx: 'auto', mb: 1 }}><Sync /></Avatar>
-                    <Typography variant="h5">{data?.stats?.totalChapters ?? webtoon.sukuyamiData?.popularity ?? 'N/A'}</Typography>
-                    <Typography variant="caption" color="textSecondary">Popularity</Typography>
+                    <Typography variant="h5">{webtoon.downloadCount ?? 0}</Typography>
+                    <Typography variant="caption" color="textSecondary">Downloads</Typography>
                   </Box>
                 </Grid>
               </Grid>

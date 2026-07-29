@@ -61,7 +61,7 @@ export default function ScriptsPage() {
               <Select value={webtoonFilter} label="Select Webtoon" onChange={(e) => setWebtoonFilter(e.target.value)}>
                 <MenuItem value=""><em>— Select a webtoon —</em></MenuItem>
                 {webtoonsData?.data?.map((w: any) => (
-                  <MenuItem key={w._id} value={w._id}>{w.title}</MenuItem>
+                  <MenuItem key={w.id} value={w.id}>{w.title}</MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -84,10 +84,10 @@ export default function ScriptsPage() {
             </TableHead>
             <TableBody>
               {chapters.map((chapter: any) => (
-                <TableRow key={chapter._id} hover sx={{ cursor: 'pointer' }} onClick={() => router.push(`/chapters/${chapter._id}`)}>
+                <TableRow key={chapter.id} hover sx={{ cursor: 'pointer' }} onClick={() => router.push(`/chapters/${chapter.id}`)}>
                   <TableCell>{chapter.chapterNumber}</TableCell>
-                  <TableCell>{chapter.title || `Chapter ${chapter.chapterNumber}`}</TableCell>
-                  <TableCell><Chip label={chapter.status} size="small" /></TableCell>
+                  <TableCell>{chapter.name || `Chapter ${chapter.chapterNumber}`}</TableCell>
+                  <TableCell><Chip label={chapter.isRead ? 'Read' : 'Unread'} size="small" color={chapter.isRead ? 'success' : 'default'} /></TableCell>
                 </TableRow>
               ))}
             </TableBody>

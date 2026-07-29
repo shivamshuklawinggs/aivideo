@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import axios from 'axios';
 import {
   Box,
   Button,
@@ -26,6 +25,8 @@ import {
   NavigateNext,
   DoneAll,
 } from '@mui/icons-material';
+import { useQuery } from '@tanstack/react-query';
+import { sukuyamiApi } from '@/services/api/sukuyamiApi';
 
 interface PanelInfo {
   panelId: string;
@@ -37,31 +38,30 @@ interface PanelRecording {
   panelId: string;
   panelOrder: number;
   status: 'not_started' | 'recording' | 'completed' | 'skipped' | 'failed';
-  audioFile?: string;
+  audioUrl?: string;
   duration?: number;
 }
 
-interface Session {
-  currentPanelOrder: number;
-  completedPanels: string[];
-  skippedPanels: string[];
-  status: string;
+const STORAGE_KEY_PREFIX = 'recordings_';
+
+function getStorageKey(chapterId: string) {
+  return `${STORAGE_KEY_PREFIX}${chapterId}`;
 }
 
-interface MergeStatus {
-  status: 'pending' | 'merging' | 'completed' | 'failed';
-  progress: number;
-  audioFile?: string;
-  error?: string;
-}
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
-
-function getAuthHeaders() {
+function loadStoredRecordings(chapterId: string): Record<string, PanelRecording> {
   if (typeof window === 'undefined') return {};
-  const token = localStorage.getItem('token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  try {
+    const stored = localStorage.getItem(getStorageKey(chapterId));
+    if (stored) return JSON.parse(stored);
+  } catch {}
+  return {};
+}
+
+function saveStoredRecordings(chapterId: string, recordings: Record<string, PanelRecording>) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(getStorageKey(chapterId), JSON.stringify(recordings));
+  } catch {}
 }
 
 export default function RecordingPage() {
@@ -78,10 +78,6 @@ export default function RecordingPage() {
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-
-  const [merge, setMerge] = useState<MergeStatus | null>(null);
-  const [timestamps, setTimestamps] = useState<any[] | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -96,47 +92,38 @@ export default function RecordingPage() {
 
   const currentPanel = panels[currentIndex];
 
+  const { data: pagesData, isLoading: pagesLoading } = useQuery({
+    queryKey: ['chapter-pages', chapterId],
+    queryFn: () => sukuyamiApi.getChapterPages(chapterId),
+    enabled: !!chapterId,
+  });
+
   useEffect(() => {
     if (!chapterId) return;
-    loadSession();
+    setLoading(true);
+    setError('');
+    setRecordings(loadStoredRecordings(chapterId));
+    setLoading(false);
   }, [chapterId]);
 
   useEffect(() => {
-    // Clear in-memory recording and show saved audio for current panel when navigating
+    if (pagesData?.pages) {
+      const fetchedPanels: PanelInfo[] = pagesData.pages.map((url: string, i: number) => ({
+        panelId: `panel_${i}`,
+        panelOrder: i,
+        imageUrl: url,
+      }));
+      setPanels(fetchedPanels);
+    }
+  }, [pagesData]);
+
+  useEffect(() => {
     setAudioBlob(null);
     setAudioUrl(null);
-    if (currentPanel && recordings[currentPanel.panelId]?.audioFile) {
-      const filePath = recordings[currentPanel.panelId].audioFile!.replace(/\\/g, '/');
-      setAudioUrl(`${SOCKET_URL}/${filePath}`);
+    if (currentPanel && recordings[currentPanel.panelId]?.audioUrl) {
+      setAudioUrl(recordings[currentPanel.panelId].audioUrl!);
     }
   }, [currentIndex, recordings]);
-
-  const loadSession = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const [panelsRes, sessionRes, recordingsRes] = await Promise.all([
-        axios.get(`${API_URL}/recordings/chapters/${chapterId}/panels`, { headers: getAuthHeaders() }),
-        axios.get(`${API_URL}/recordings/chapters/${chapterId}/session`, { headers: getAuthHeaders() }),
-        axios.get(`${API_URL}/recordings/chapters/${chapterId}/recordings`, { headers: getAuthHeaders() }),
-      ]);
-
-      const fetchedPanels: PanelInfo[] = panelsRes.data.data || [];
-      const session: Session = sessionRes.data.data?.session || { currentPanelOrder: 0, completedPanels: [], skippedPanels: [], status: 'active' };
-      const recs: PanelRecording[] = recordingsRes.data.data || [];
-
-      setPanels(fetchedPanels);
-      setRecordings(Object.fromEntries(recs.map((r) => [r.panelId, r])));
-
-      const nextOrder = Math.min(session.currentPanelOrder, fetchedPanels.length - 1);
-      const resumeIndex = Math.max(0, nextOrder);
-      setCurrentIndex(resumeIndex);
-    } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Failed to load session.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const startRecording = async () => {
     if (!currentPanel) return;
@@ -157,8 +144,9 @@ export default function RecordingPage() {
 
       mediaRecorder.onstop = () => {
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const url = URL.createObjectURL(blob);
         setAudioBlob(blob);
-        setAudioUrl(URL.createObjectURL(blob));
+        setAudioUrl(url);
       };
 
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -203,116 +191,56 @@ export default function RecordingPage() {
     stopWaveform();
   };
 
-  const uploadRecording = async () => {
-    if (!audioBlob || !currentPanel) return;
-    setUploading(true);
-    setError('');
-    try {
-      const formData = new FormData();
-      formData.append('audio', audioBlob, `${currentPanel.panelId}.webm`);
-      formData.append('chapterId', chapterId);
-      formData.append('mangaId', '');
-      formData.append('panelId', currentPanel.panelId);
-      formData.append('panelOrder', String(currentPanel.panelOrder));
-
-      const res = await axios.post(`${API_URL}/recordings`, formData, {
-        headers: { ...getAuthHeaders(), 'Content-Type': 'multipart/form-data' },
-      });
-
-      const rec: PanelRecording = res.data.data;
-      setRecordings((prev) => ({ ...prev, [rec.panelId]: rec }));
-      setAudioBlob(null);
-      setAudioUrl(null);
-
-      // Move to next panel if possible
-      if (currentIndex < panels.length - 1) {
-        setCurrentIndex((i) => i + 1);
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Upload failed.');
-    } finally {
-      setUploading(false);
+  const saveRecording = () => {
+    if (!audioBlob || !audioUrl || !currentPanel) return;
+    const rec: PanelRecording = {
+      panelId: currentPanel.panelId,
+      panelOrder: currentPanel.panelOrder,
+      status: 'completed',
+      audioUrl,
+      duration: recordingTime,
+    };
+    const updated = { ...recordings, [rec.panelId]: rec };
+    setRecordings(updated);
+    saveStoredRecordings(chapterId, updated);
+    setAudioBlob(null);
+    setAudioUrl(null);
+    if (currentIndex < panels.length - 1) {
+      setCurrentIndex((i) => i + 1);
     }
   };
 
-  const deleteRecording = async () => {
+  const deleteRecording = () => {
     if (!currentPanel) return;
-    try {
-      await axios.delete(`${API_URL}/recordings/${currentPanel.panelId}?chapterId=${chapterId}`, {
-        headers: getAuthHeaders(),
-      });
-      setRecordings((prev) => {
-        const next = { ...prev };
-        delete next[currentPanel.panelId];
-        return next;
-      });
-      setAudioBlob(null);
-      setAudioUrl(null);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Delete failed.');
-    }
+    const updated = { ...recordings };
+    delete updated[currentPanel.panelId];
+    setRecordings(updated);
+    saveStoredRecordings(chapterId, updated);
+    setAudioBlob(null);
+    setAudioUrl(null);
   };
 
-  const skipPanel = async () => {
+  const skipPanel = () => {
     if (!currentPanel) return;
-    try {
-      await axios.post(`${API_URL}/recordings/chapters/${chapterId}/panels/${currentPanel.panelId}/skip`, {}, { headers: getAuthHeaders() });
-      setRecordings((prev) => ({ ...prev, [currentPanel.panelId]: { ...prev[currentPanel.panelId], status: 'skipped' } as any }));
-      if (currentIndex < panels.length - 1) setCurrentIndex((i) => i + 1);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Skip failed.');
-    }
+    const updated = {
+      ...recordings,
+      [currentPanel.panelId]: {
+        ...recordings[currentPanel.panelId],
+        panelId: currentPanel.panelId,
+        panelOrder: currentPanel.panelOrder,
+        status: 'skipped' as const,
+      },
+    };
+    setRecordings(updated);
+    saveStoredRecordings(chapterId, updated);
+    if (currentIndex < panels.length - 1) setCurrentIndex((i) => i + 1);
   };
 
-  const finishChapter = async () => {
+  const finishChapter = () => {
+    const completed = Object.values(recordings).filter((r) => r.status === 'completed').length;
+    const skipped = Object.values(recordings).filter((r) => r.status === 'skipped').length;
     setError('');
-    try {
-      await axios.post(`${API_URL}/recordings/chapters/${chapterId}/merge`, {}, { headers: getAuthHeaders() });
-      pollMergeStatus();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Merge failed.');
-    }
-  };
-
-  const downloadChapterAudio = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/recordings/chapters/${chapterId}/audio`, {
-        responseType: 'blob',
-        headers: getAuthHeaders(),
-      });
-      const url = URL.createObjectURL(new Blob([res.data], { type: 'audio/mpeg' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `chapter-${chapterId}.mp3`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Download failed.');
-    }
-  };
-
-  const loadTimestamps = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/recordings/chapters/${chapterId}/timestamps`, { headers: getAuthHeaders() });
-      setTimestamps(res.data.data || []);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load timestamps.');
-    }
-  };
-
-  const pollMergeStatus = () => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await axios.get(`${API_URL}/recordings/chapters/${chapterId}/merge-status`, { headers: getAuthHeaders() });
-        const status: MergeStatus = res.data.data;
-        setMerge(status);
-        if (status.status === 'completed' || status.status === 'failed') {
-          clearInterval(interval);
-        }
-      } catch {
-        clearInterval(interval);
-      }
-    }, 1500);
+    alert(`Chapter finished! ${completed} panels recorded, ${skipped} skipped.`);
   };
 
   const startWaveform = () => {
@@ -366,7 +294,7 @@ export default function RecordingPage() {
   const isSkipped = currentPanel ? recordings[currentPanel.panelId]?.status === 'skipped' : false;
   const completionRate = panels.length > 0 ? (Object.values(recordings).filter((r) => r.status === 'completed' || r.status === 'skipped').length / panels.length) * 100 : 0;
 
-  if (loading) {
+  if (loading || pagesLoading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="80vh">
         <CircularProgress />
@@ -442,8 +370,8 @@ export default function RecordingPage() {
               <Button variant="contained" startIcon={<Refresh />} onClick={() => { setAudioBlob(null); setAudioUrl(null); startRecording(); }}>
                 Re-record
               </Button>
-              <Button variant="contained" color="success" onClick={uploadRecording} disabled={uploading}>
-                {uploading ? <CircularProgress size={20} /> : 'Save & Next'}
+              <Button variant="contained" color="success" onClick={saveRecording}>
+                Save &amp; Next
               </Button>
             </>
           )}
@@ -491,36 +419,6 @@ export default function RecordingPage() {
           </Button>
         </Grid>
       </Grid>
-
-      {merge && (
-        <Paper sx={{ p: 2, mt: 3 }}>
-          <Typography variant="h6">Chapter Audio</Typography>
-          <Typography>Status: {merge.status}</Typography>
-          {merge.status === 'merging' && <LinearProgress variant="determinate" value={merge.progress} />}
-          {merge.status === 'completed' && (
-            <Box mt={1}>
-              <Button variant="contained" onClick={downloadChapterAudio}>
-                Download Chapter MP3
-              </Button>
-              <Button sx={{ ml: 1 }} variant="outlined" onClick={loadTimestamps}>
-                View Timestamps
-              </Button>
-            </Box>
-          )}
-          {merge.status === 'failed' && <Alert severity="error" sx={{ mt: 1 }}>{merge.error || 'Merge failed'}</Alert>}
-        </Paper>
-      )}
-
-      {timestamps && (
-        <Paper sx={{ p: 2, mt: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Timestamps
-          </Typography>
-          <Box component="pre" sx={{ overflow: 'auto', maxHeight: 300, bgcolor: '#f5f5f5', p: 1, borderRadius: 1 }}>
-            {JSON.stringify(timestamps, null, 2)}
-          </Box>
-        </Paper>
-      )}
     </Box>
   );
 }

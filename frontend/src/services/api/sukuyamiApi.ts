@@ -1,37 +1,38 @@
-import { apiClient } from './apiClient';
+import suwayomiGraphQLClient from './suwayomiGraphQLClient';
 
 export interface Webtoon {
-  _id: string;
+  id: string;
   title: string;
-  description: string;
-  author: string;
-  coverImage: string;
-  status: 'ongoing' | 'completed' | 'hiatus';
-  totalChapters: number;
-  genres: string[];
-  sukuyamiData: {
-    rating: number;
-    popularity: number;
-    sukuyamiId: string;
-  };
-  createdAt: string;
-  updatedAt: string;
+  description?: string;
+  author?: string;
+  artist?: string;
+  thumbnailUrl?: string;
+  status: string;
+  genre: string[];
+  realUrl?: string;
+  inLibrary: boolean;
+  sourceId: string;
+  chapters?: { totalCount: number };
+  unreadCount?: number;
+  downloadCount?: number;
+  bookmarkCount?: number;
 }
 
 export interface Chapter {
-  _id: string;
-  webtoonId: string;
+  id: string;
+  name: string;
+  mangaId: string;
   chapterNumber: number;
-  title: string;
-  status: 'pending' | 'syncing' | 'processing' | 'completed' | 'failed';
+  scanlator?: string;
+  realUrl?: string;
+  uploadDate?: string;
+  fetchedAt?: string;
   isRead: boolean;
+  isDownloaded: boolean;
   isBookmarked: boolean;
-  panelCount: number;
-  scriptGenerated: boolean;
-  videoGenerated: boolean;
-  videoUrl?: string;
-  createdAt: string;
-  updatedAt: string;
+  pageCount?: number;
+  lastPageRead?: number;
+  lastReadAt?: string;
 }
 
 export interface DashboardStats {
@@ -63,100 +64,153 @@ export interface WebtoonSearchParams {
 }
 
 export const sukuyamiApi = {
-  // Popular webtoons
-  getPopularWebtoons: async (params?: { limit?: number }) => {
-    const response = await apiClient.get('/sukuyami/webtoons/popular', { params });
-    const d = response.data?.data;
-    return d?.webtoons ?? [];
-  },
-
-  // Webtoons — backend: { success, data: { webtoons: [], pagination: {} } }
+  // Library mangas (with filters, search, sort)
   getWebtoons: async (params?: WebtoonSearchParams) => {
-    const response = await apiClient.get('/sukuyami/webtoons', { params });
-    const d = response.data?.data;
-    return { data: d?.webtoons ?? [], pagination: d?.pagination };
-  },
-
-  getWebtoon: async (webtoonId: string) => {
-    const response = await apiClient.get(`/sukuyami/webtoons/${webtoonId}`);
-    return response.data?.data;
-  },
-
-  syncWebtoons: async (options: { webtoonIds?: string[]; forceUpdate?: boolean; syncChapters?: boolean }) => {
-    const response = await apiClient.post('/sukuyami/sync', options);
-    return response.data;
-  },
-
-  searchWebtoons: async (params: { query: string; limit?: number }) => {
-    const response = await apiClient.get('/sukuyami/search', { params });
-    const d = response.data?.data;
-    return d?.webtoons ?? d?.results ?? d ?? [];
-  },
-
-  // Chapters — backend: { success, data: { chapters: [], pagination: {} } }
-  getChapters: async (webtoonId: string, params?: { page?: number; limit?: number; status?: string }) => {
-    const response = await apiClient.get(`/sukuyami/webtoons/${webtoonId}/chapters`, { params });
-    const d = response.data?.data;
-    return { data: d?.chapters ?? [], pagination: d?.pagination };
-  },
-
-  getChapter: async (chapterId: string) => {
-    const response = await apiClient.get(`/sukuyami/chapters/${chapterId}`);
-    return response.data?.data;
-  },
-
-  getChapterPages: async (chapterId: string) => {
-    const response = await apiClient.get(`/sukuyami/chapters/${chapterId}/pages`);
-    return response.data?.data;
-  },
-
-  markChapterAsRead: async (chapterId: string) => {
-    const response = await apiClient.post(`/sukuyami/chapters/${chapterId}/read`);
-    return response.data?.data?.chapter ?? response.data?.data;
-  },
-
-  markAllChaptersAsRead: async (webtoonId: string) => {
-    const response = await apiClient.post(`/sukuyami/webtoons/${webtoonId}/read-all`);
-    return response.data?.data?.chapters ?? [];
-  },
-
-  // Dashboard — backend: { success, data: { stats: { webtoons, chapters, recentActivity } } }
-  getDashboardStats: async (): Promise<DashboardStats> => {
-    const response = await apiClient.get('/sukuyami/dashboard');
-    const stats = response.data?.data?.stats ?? {};
+    const result = await suwayomiGraphQLClient.getLibraryMangas(
+      params?.page ?? 1,
+      params?.limit ?? 20,
+      params?.status,
+      params?.genre,
+      params?.search,
+      params?.sortBy,
+      params?.sortOrder,
+    );
     return {
-      totalWebtoons: stats.webtoons?.total ?? 0,
-      totalChapters: stats.chapters?.total ?? 0,
-      totalScripts: stats.chapters?.completed ?? 0,
-      totalVideos: stats.chapters?.withVideo ?? 0,
-      processingStats: {
-        pending: 0,
-        processing: 0,
-        completed: stats.chapters?.completed ?? 0,
-        failed: 0,
+      data: result.mangas,
+      pagination: {
+        total: result.totalCount,
+        page: params?.page ?? 1,
+        limit: params?.limit ?? 20,
+        hasNextPage: result.hasNextPage,
       },
-      recentActivity: (stats.recentActivity ?? []).map((a: any) => ({
-        type: a.status || 'chapter_synced',
-        webtoonTitle: a.title || `Chapter ${a.chapterNumber}`,
-        timestamp: a.updatedAt || new Date().toISOString(),
-      })),
     };
   },
 
-  // Cron — backend: { success, data: { status } }
-  getCronStatus: async () => {
-    const response = await apiClient.get('/sukuyami/cron/status');
-    return response.data?.data?.status ?? {};
+  // Popular webtoons (library sorted by last fetched)
+  getPopularWebtoons: async (params?: { limit?: number }) => {
+    const result = await suwayomiGraphQLClient.getLibraryMangas(
+      1,
+      params?.limit ?? 10,
+      undefined,
+      undefined,
+      undefined,
+      'updatedAt',
+      'desc',
+    );
+    return result.mangas;
   },
 
-  runCronJob: async (jobName: string) => {
-    const response = await apiClient.post(`/sukuyami/cron/${jobName}/run`);
-    return response.data;
+  // Single manga details
+  getWebtoon: async (webtoonId: string) => {
+    return suwayomiGraphQLClient.getManga(webtoonId);
   },
 
-  // Health
+  // Search manga in source
+  searchWebtoons: async (params: { query: string; limit?: number }) => {
+    return suwayomiGraphQLClient.searchManga(params.query);
+  },
+
+  // Chapters for a manga
+  getChapters: async (webtoonId: string, params?: { page?: number; limit?: number; status?: string }) => {
+    const result = await suwayomiGraphQLClient.getChaptersWithTotal(
+      webtoonId,
+      params?.page ?? 1,
+      params?.limit ?? 50,
+      params?.status,
+    );
+    return {
+      data: result.chapters,
+      pagination: {
+        total: result.totalCount,
+        page: params?.page ?? 1,
+        limit: params?.limit ?? 50,
+        hasNextPage: result.hasNextPage,
+      },
+    };
+  },
+
+  // Single chapter info
+  getChapter: async (chapterId: string) => {
+    return suwayomiGraphQLClient.getChapterInfo(chapterId);
+  },
+
+  // Chapter pages (panel image URLs)
+  getChapterPages: async (chapterId: string) => {
+    const pages = await suwayomiGraphQLClient.getChapterPages(chapterId);
+    return { pages };
+  },
+
+  // Mark single chapter as read
+  markChapterAsRead: async (chapterId: string) => {
+    return suwayomiGraphQLClient.markChapterAsRead(chapterId);
+  },
+
+  // Mark all chapters of a manga as read
+  markAllChaptersAsRead: async (webtoonId: string) => {
+    return suwayomiGraphQLClient.markAllChaptersAsRead(webtoonId);
+  },
+
+  // Get available sources
+  getSources: async () => {
+    return suwayomiGraphQLClient.getSources();
+  },
+
+  // Add manga to library
+  addToLibrary: async (mangaId: string) => {
+    return suwayomiGraphQLClient.addToLibrary(mangaId);
+  },
+
+  // Sync webtoons (alias for addToLibrary for single, no-op for bulk)
+  syncWebtoons: async (options: { webtoonIds?: string[] }) => {
+    if (options.webtoonIds && options.webtoonIds.length > 0) {
+      const results = await Promise.all(
+        options.webtoonIds.map((id) => suwayomiGraphQLClient.addToLibrary(id)),
+      );
+      return results;
+    }
+    return [];
+  },
+
+  // Health check
   healthCheck: async () => {
-    const response = await apiClient.get('/sukuyami/health');
-    return response.data?.data ?? response.data;
+    return suwayomiGraphQLClient.healthCheck();
+  },
+
+  // Dashboard stats (computed from library)
+  getDashboardStats: async (): Promise<DashboardStats> => {
+    const libraryResult = await suwayomiGraphQLClient.getLibraryMangas(1, 10000);
+    const totalWebtoons = libraryResult.totalCount;
+    let totalChapters = 0;
+    let totalRead = 0;
+    const recentActivity: Array<{ type: string; webtoonTitle: string; timestamp: string }> = [];
+
+    for (const manga of libraryResult.mangas) {
+      const chapterCount = manga.chapters?.totalCount ?? 0;
+      totalChapters += chapterCount;
+      totalRead += chapterCount - (manga.unreadCount ?? 0);
+      if (manga.lastFetchedAt) {
+        recentActivity.push({
+          type: 'chapter_synced',
+          webtoonTitle: manga.title,
+          timestamp: manga.lastFetchedAt,
+        });
+      }
+    }
+
+    recentActivity.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    return {
+      totalWebtoons,
+      totalChapters,
+      totalScripts: totalRead,
+      totalVideos: 0,
+      processingStats: {
+        pending: 0,
+        processing: 0,
+        completed: totalRead,
+        failed: 0,
+      },
+      recentActivity: recentActivity.slice(0, 10),
+    };
   },
 };

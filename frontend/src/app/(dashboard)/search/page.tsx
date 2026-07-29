@@ -57,8 +57,8 @@ export default function SearchPage() {
             <Grid item xs={12} sm={6} md={4} lg={3} key={r.id}>
               <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
                 <CardMedia component="div" sx={{ height: 160, bgcolor: '#2a2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {r.coverImage ? (
-                    <Box component="img" src={r.coverImage} alt={r.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  {r.thumbnailUrl ? (
+                    <Box component="img" src={r.thumbnailUrl} alt={r.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
                     <Book sx={{ fontSize: 60, color: 'text.secondary' }} />
                   )}
@@ -67,8 +67,7 @@ export default function SearchPage() {
                   <Typography variant="h6" noWrap gutterBottom>{r.title}</Typography>
                   <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>{r.author}</Typography>
                   <Box display="flex" gap={1} mb={2} flexWrap="wrap">
-                    <Chip label={r.status || 'Unknown'} size="small" color={r.status === 'ongoing' ? 'success' : 'default'} />
-                    <Chip label={`${r.totalChapters || 0} ch`} size="small" variant="outlined" />
+                    <Chip label={r.inLibrary ? 'In Library' : 'Not Added'} size="small" color={r.inLibrary ? 'success' : 'default'} />
                   </Box>
                   <Button fullWidth variant="outlined" startIcon={<Visibility />}
                     onClick={() => router.push(`/webtoons/${r.id}`)}>

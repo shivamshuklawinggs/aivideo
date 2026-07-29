@@ -37,7 +37,7 @@ export default function ChapterDetailPage() {
   if (isLoading) return <Box sx={{ width: '100%', mt: 2 }}><LinearProgress /></Box>;
   if (error) return <Box sx={{ p: 3 }}><Typography color="error">Failed to load chapter</Typography></Box>;
 
-  const chapter = data?.chapter ?? data;
+  const chapter = data;
   if (!chapter) return null;
 
   return (
@@ -48,7 +48,7 @@ export default function ChapterDetailPage() {
       </Button>
 
       <Typography variant="h4" gutterBottom>
-        Chapter {chapter.chapterNumber}: {chapter.title || ''}
+        Chapter {chapter.chapterNumber}: {chapter.name || ''}
       </Typography>
 
       <Card sx={{ mb: 3 }}>
@@ -60,7 +60,7 @@ export default function ChapterDetailPage() {
             </Grid>
             <Grid item xs={6} sm={3}>
               <Typography variant="caption" color="textSecondary">Panels</Typography><br />
-              <Typography variant="h6">{chapter.panelCount || pagesData?.pages?.length || 0}</Typography>
+              <Typography variant="h6">{chapter.pageCount || pagesData?.pages?.length || 0}</Typography>
             </Grid>
           </Grid>
         </CardContent>
@@ -69,7 +69,7 @@ export default function ChapterDetailPage() {
       {/* Inline Video Editor */}
       <VideoEditor
         pages={pagesData?.pages ?? []}
-        title={chapter.title}
+        title={chapter.name}
         chapterNumber={chapter.chapterNumber}
       />
     </Box>

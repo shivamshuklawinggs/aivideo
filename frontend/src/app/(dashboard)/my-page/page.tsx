@@ -6,7 +6,7 @@ import {
   IconButton, LinearProgress, Paper, ToggleButton, ToggleButtonGroup,
   InputAdornment,
 } from '@mui/material';
-import { Search, FilterList, Close, Star } from '@mui/icons-material';
+import { Search, FilterList, Close } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { sukuyamiApi, Webtoon, WebtoonSearchParams } from '@/services/api/sukuyamiApi';
@@ -137,15 +137,15 @@ export default function MyPage() {
           </Typography>
           <Grid container spacing={3}>
             {webtoons.map((webtoon: Webtoon) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={webtoon._id}>
+              <Grid item xs={12} sm={6} md={4} lg={3} key={webtoon.id}>
                 <Card
                   sx={{ height: '100%', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
-                  onClick={() => router.push(`/webtoons/${webtoon._id}`)}
+                  onClick={() => router.push(`/webtoons/${webtoon.id}`)}
                 >
                   <CardMedia
                     component="img"
                     height="200"
-                    image={webtoon.coverImage}
+                    image={webtoon.thumbnailUrl || '/placeholder.jpg'}
                     alt={webtoon.title}
                     sx={{ objectFit: 'cover' }}
                   />
@@ -156,11 +156,10 @@ export default function MyPage() {
                     </Typography>
                     <Box display="flex" gap={1} flexWrap="wrap" mb={1}>
                       <Chip label={webtoon.status} size="small" color={getStatusColor(webtoon.status)} />
-                      <Chip label={`${webtoon.totalChapters} chapters`} size="small" variant="outlined" />
-                      {webtoon.sukuyamiData?.rating > 0 && (
+                      <Chip label={`${webtoon.chapters?.totalCount ?? 0} chapters`} size="small" variant="outlined" />
+                      {webtoon.unreadCount > 0 && (
                         <Chip 
-                          icon={<Star />} 
-                          label={webtoon.sukuyamiData.rating} 
+                          label={`${webtoon.unreadCount} unread`} 
                           size="small" 
                           color="warning" 
                           variant="outlined"

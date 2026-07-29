@@ -85,16 +85,16 @@ export default function ChaptersPage() {
           </TableHead>
           <TableBody>
             {data?.data?.map((chapter: Chapter) => (
-              <TableRow key={chapter._id} hover sx={{ cursor: 'pointer' }} onClick={() => router.push(`/chapters/${chapter._id}`)}>
+              <TableRow key={chapter.id} hover sx={{ cursor: 'pointer' }} onClick={() => router.push(`/chapters/${chapter.id}`)}>
                 <TableCell>{chapter.chapterNumber}</TableCell>
-                <TableCell>{chapter.title || `Chapter ${chapter.chapterNumber}`}</TableCell>
+                <TableCell>{chapter.name || `Chapter ${chapter.chapterNumber}`}</TableCell>
                 <TableCell><Chip label={chapter.isRead ? 'Read' : 'Unread'} color={chapter.isRead ? 'success' : 'default'} size="small" /></TableCell>
-                <TableCell>{chapter.panelCount || '-'}</TableCell>
+                <TableCell>{chapter.pageCount || '-'}</TableCell>
                 <TableCell>
                   <Box display="flex" gap={0.5} onClick={(e) => e.stopPropagation()}>
                     {!chapter.isRead && (
                       <Tooltip title="Mark as Read">
-                        <IconButton size="small" color="success" onClick={() => markReadMutation.mutate(chapter._id)} disabled={markReadMutation.isPending}>
+                        <IconButton size="small" color="success" onClick={() => markReadMutation.mutate(chapter.id)} disabled={markReadMutation.isPending}>
                           <CheckCircle fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -109,7 +109,7 @@ export default function ChaptersPage() {
 
       {data?.pagination && (
         <Box display="flex" justifyContent="center" mt={3}>
-          <Pagination count={data.pagination.pages ?? data.pagination.totalPages ?? 1} page={page} onChange={(_, v) => setPage(v)} color="primary" />
+          <Pagination count={Math.ceil((data.pagination?.total ?? 0) / (data.pagination?.limit ?? 50)) || 1} page={page} onChange={(_, v) => setPage(v)} color="primary" />
         </Box>
       )}
     </Box>

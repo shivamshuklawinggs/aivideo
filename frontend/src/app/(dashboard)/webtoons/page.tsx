@@ -106,10 +106,10 @@ export default function WebtoonsPage() {
 
       <Grid container spacing={3}>
         {webtoonsData?.data?.map((webtoon: Webtoon) => (
-          <Grid item xs={12} sm={6} md={4} lg={3} key={webtoon._id}>
+          <Grid item xs={12} sm={6} md={4} lg={3} key={webtoon.id}>
             <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', cursor: 'pointer', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)', boxShadow: 4 } }}
-              onClick={() => router.push(`/webtoons/${webtoon._id}`)}>
-              <CardMedia component="img" height="180" image={webtoon.coverImage || '/placeholder.jpg'} alt={webtoon.title} sx={{ objectFit: 'cover' }} />
+              onClick={() => router.push(`/webtoons/${webtoon.id}`)}>
+              <CardMedia component="img" height="180" image={webtoon.thumbnailUrl || '/placeholder.jpg'} alt={webtoon.title} sx={{ objectFit: 'cover' }} />
               <CardContent sx={{ flexGrow: 1 }}>
                 <Typography variant="h6" noWrap gutterBottom>{webtoon.title}</Typography>
                 <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>{webtoon.author}</Typography>
@@ -118,11 +118,11 @@ export default function WebtoonsPage() {
                 </Typography>
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                   <Chip label={webtoon.status} color={getStatusColor(webtoon.status) as any} size="small" />
-                  <Typography variant="body2" color="textSecondary">{webtoon.totalChapters} chapters</Typography>
+                  <Typography variant="body2" color="textSecondary">{webtoon.chapters?.totalCount ?? 0} chapters</Typography>
                 </Box>
                 <Box display="flex" justifyContent="space-between" mt={1}>
                   <Tooltip title="View Chapters">
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); router.push(`/webtoons/${webtoon._id}/chapters`); }}>
+                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); router.push(`/webtoons/${webtoon.id}/chapters`); }}>
                       <Visibility />
                     </IconButton>
                   </Tooltip>
@@ -137,7 +137,7 @@ export default function WebtoonsPage() {
 
       {webtoonsData?.pagination && (
         <Box display="flex" justifyContent="center" mt={4}>
-          <Pagination count={webtoonsData.pagination.pages ?? webtoonsData.pagination.totalPages ?? 1} page={params.page || 1}
+          <Pagination count={Math.ceil((webtoonsData.pagination?.total ?? 0) / (webtoonsData.pagination?.limit ?? 20)) || 1} page={params.page || 1}
             onChange={(_, v) => setParams((p) => ({ ...p, page: v }))} color="primary" />
         </Box>
       )}

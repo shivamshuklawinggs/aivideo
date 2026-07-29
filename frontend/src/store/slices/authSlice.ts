@@ -1,5 +1,4 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import { authAPI } from '@/services/api/authAPI';
 
 export interface User {
   _id: string;
@@ -26,34 +25,38 @@ export interface User {
 interface AuthState {
   user: User | null;
   token: string | null;
-  refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
 }
 
-const getToken = () => {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('token');
+const GUEST_USER: User = {
+  _id: 'local-user',
+  email: 'guest@aivideo.local',
+  name: 'Guest User',
+  role: 'admin',
+  subscription: { plan: 'enterprise', status: 'active' },
+  usage: {
+    videosGenerated: 0,
+    storageUsed: 0,
+    monthlyVideoLimit: 1000,
+    monthlyStorageLimit: 10737418240,
+  },
+  preferences: { theme: 'dark', language: 'en', notifications: true },
+};
+
+const loadStoredUser = (): User => {
+  if (typeof window === 'undefined') return GUEST_USER;
+  try {
+    const stored = localStorage.getItem('user');
+    if (stored) return JSON.parse(stored);
+  } catch {}
+  return GUEST_USER;
 };
 
 const initialState: AuthState = {
-  user: {
-    _id: '000000000000000000000000',
-    email: 'guest@aivideo.local',
-    name: 'Guest User',
-    role: 'admin',
-    subscription: { plan: 'enterprise', status: 'active' },
-    usage: {
-      videosGenerated: 0,
-      storageUsed: 0,
-      monthlyVideoLimit: 1000,
-      monthlyStorageLimit: 10737418240,
-    },
-    preferences: { theme: 'dark', language: 'en', notifications: true },
-  },
-  token: getToken() || 'guest',
-  refreshToken: typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null,
+  user: loadStoredUser(),
+  token: 'local-session',
   isAuthenticated: true,
   isLoading: false,
   error: null,
@@ -62,57 +65,56 @@ const initialState: AuthState = {
 export const login = createAsyncThunk(
   'auth/login',
   async (credentials: { email: string; password: string }, { rejectWithValue }) => {
-    try {
-      const response = await authAPI.login(credentials);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('token', response.token);
-        localStorage.setItem('refreshToken', response.refreshToken);
-        document.cookie = `token=${response.token}; path=/; max-age=${60 * 60 * 24 * 7}`;
-      }
-      return response;
-    } catch (error: any) {
-      return rejectWithValue(error.response?.data?.message || 'Login failed');
+    if (!credentials.email || !credentials.password) {
+      return rejectWithValue('Email and password are required');
     }
+    const user: User = {
+      ...GUEST_USER,
+      _id: `local-${Date.now()}`,
+      email: credentials.email,
+      name: credentials.email.split('@')[0],
+    };
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user', JSON.stringify(user));
+    }
+    return { user };
   }
 );
 
 export const register = createAsyncThunk(
   'auth/register',
   async (userData: { email: string; password: string; name: string }, { rejectWithValue }) => {
-    try {
-      const response = await authAPI.register(userData);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('token', response.token);
-        localStorage.setItem('refreshToken', response.refreshToken);
-        document.cookie = `token=${response.token}; path=/; max-age=${60 * 60 * 24 * 7}`;
-      }
-      return response;
-    } catch (error: any) {
-      return rejectWithValue(error.response?.data?.message || 'Registration failed');
+    if (!userData.email || !userData.password) {
+      return rejectWithValue('Email and password are required');
     }
+    const user: User = {
+      ...GUEST_USER,
+      _id: `local-${Date.now()}`,
+      email: userData.email,
+      name: userData.name || userData.email.split('@')[0],
+    };
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user', JSON.stringify(user));
+    }
+    return { user };
   }
 );
 
 export const logout = createAsyncThunk('auth/logout', async () => {
-  try {
-    await authAPI.logout();
-  } catch (_) {}
   if (typeof window !== 'undefined') {
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
-    document.cookie = 'token=; path=/; max-age=0';
+    localStorage.removeItem('user');
   }
 });
 
 export const updateProfile = createAsyncThunk(
   'auth/updateProfile',
-  async (userData: Partial<User>, { rejectWithValue }) => {
-    try {
-      const response = await authAPI.updateProfile(userData);
-      return response.user;
-    } catch (error: any) {
-      return rejectWithValue(error.response?.data?.message || 'Profile update failed');
+  async (userData: Partial<User>, { getState }) => {
+    const state = getState() as { auth: AuthState };
+    const updatedUser = { ...state.auth.user, ...userData } as User;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user', JSON.stringify(updatedUser));
     }
+    return updatedUser;
   }
 );
 
@@ -121,10 +123,8 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     clearError: (state) => { state.error = null; },
-    setCredentials: (state, action: PayloadAction<{ user: User; token: string; refreshToken: string }>) => {
+    setCredentials: (state, action: PayloadAction<{ user: User }>) => {
       state.user = action.payload.user;
-      state.token = action.payload.token;
-      state.refreshToken = action.payload.refreshToken;
       state.isAuthenticated = true;
     },
   },
@@ -134,35 +134,27 @@ const authSlice = createSlice({
       .addCase(login.fulfilled, (state, action) => {
         state.isLoading = false;
         state.user = action.payload.user;
-        state.token = action.payload.token;
-        state.refreshToken = action.payload.refreshToken;
         state.isAuthenticated = true;
         state.error = null;
       })
       .addCase(login.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
-        state.isAuthenticated = false;
       })
       .addCase(register.pending, (state) => { state.isLoading = true; state.error = null; })
       .addCase(register.fulfilled, (state, action) => {
         state.isLoading = false;
         state.user = action.payload.user;
-        state.token = action.payload.token;
-        state.refreshToken = action.payload.refreshToken;
         state.isAuthenticated = true;
         state.error = null;
       })
       .addCase(register.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
-        state.isAuthenticated = false;
       })
       .addCase(logout.fulfilled, (state) => {
-        state.user = null;
-        state.token = null;
-        state.refreshToken = null;
-        state.isAuthenticated = false;
+        state.user = GUEST_USER;
+        state.isAuthenticated = true;
         state.error = null;
       })
       .addCase(updateProfile.pending, (state) => { state.isLoading = true; state.error = null; })

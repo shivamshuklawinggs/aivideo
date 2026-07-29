@@ -21,7 +21,7 @@ export default function PopularPage() {
   });
 
   const addToLibraryMutation = useMutation({
-    mutationFn: (webtoonId: string) => sukuyamiApi.syncWebtoons({ webtoonIds: [webtoonId] }),
+    mutationFn: (mangaId: string) => sukuyamiApi.addToLibrary(mangaId),
     onSuccess: () => { toast.success('Added to library'); queryClient.invalidateQueries({ queryKey: ['webtoons'] }); },
     onError: (e: any) => toast.error(`Failed: ${e.message}`),
   });
@@ -66,15 +66,15 @@ export default function PopularPage() {
       ) : (
         <Grid container spacing={3}>
           {filteredWebtoons.map((webtoon: Webtoon) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={webtoon._id}>
+            <Grid item xs={12} sm={6} md={4} lg={3} key={webtoon.id}>
               <Card
                 sx={{ height: '100%', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
-                onClick={() => router.push(`/webtoons/${webtoon._id}`)}
+                onClick={() => router.push(`/webtoons/${webtoon.id}`)}
               >
                 <CardMedia
                   component="img"
                   height="200"
-                  image={webtoon.coverImage}
+                  image={webtoon.thumbnailUrl || '/placeholder.jpg'}
                   alt={webtoon.title}
                   sx={{ objectFit: 'cover' }}
                 />
@@ -85,7 +85,7 @@ export default function PopularPage() {
                   </Typography>
                   <Box display="flex" gap={1} flexWrap="wrap" mb={1}>
                     <Chip label={webtoon.status} size="small" color={getStatusColor(webtoon.status)} />
-                    <Chip label={`${webtoon.totalChapters} chapters`} size="small" variant="outlined" />
+                    <Chip label={`${webtoon.chapters?.totalCount ?? 0} chapters`} size="small" variant="outlined" />
                   </Box>
                   <Typography variant="body2" color="textSecondary" sx={{ 
                     overflow: 'hidden', 
@@ -104,7 +104,7 @@ export default function PopularPage() {
                     startIcon={<Add />}
                     onClick={(e) => {
                       e.stopPropagation();
-                      addToLibraryMutation.mutate(webtoon._id);
+                      addToLibraryMutation.mutate(webtoon.id);
                     }}
                     disabled={addToLibraryMutation.isPending}
                   >
