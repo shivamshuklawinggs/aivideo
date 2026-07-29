@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Box,
   Card,
@@ -47,6 +47,8 @@ export default function VideoEditor({
   const [selectedSceneIndex, setSelectedSceneIndex] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [activeTab, setActiveTab] = useState(0);
+  const lastTimeRef = useRef(-1);
+  const [seekRequest, setSeekRequest] = useState<{ frame: number; nonce: number } | undefined>(undefined);
 
   const generateId = () => `scene_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -96,6 +98,7 @@ export default function VideoEditor({
       setSelectedSceneIndex(0);
       setCurrentTime(0);
       setActiveTab(0);
+      lastTimeRef.current = -1;
     }
   }, [pages, audioUrl, timeline]);
 
@@ -117,17 +120,29 @@ export default function VideoEditor({
     (frame: number) => {
       const time = frame / FPS;
       setCurrentTime(time);
-      const idx = getSceneIndexAtTime(time);
-      if (idx !== selectedSceneIndex) {
+      // Only auto-select scene when time actually changes (during playback or scrubbing)
+      if (Math.abs(time - lastTimeRef.current) > 0.05) {
+        lastTimeRef.current = time;
+        const idx = getSceneIndexAtTime(time);
         setSelectedSceneIndex(idx);
       }
     },
-    [getSceneIndexAtTime, selectedSceneIndex]
+    [getSceneIndexAtTime]
   );
 
   const handleTimeChange = (time: number) => {
     setCurrentTime(time);
     setSelectedSceneIndex(getSceneIndexAtTime(time));
+  };
+
+  // When a scene is clicked in SceneList or Timeline, seek the player to that scene
+  const handleSelectScene = (index: number) => {
+    setSelectedSceneIndex(index);
+    const startTime = scenes.slice(0, index).reduce((sum, s) => sum + s.duration, 0);
+    const frame = Math.round(startTime * FPS);
+    setSeekRequest({ frame, nonce: Date.now() });
+    setCurrentTime(startTime);
+    lastTimeRef.current = startTime;
   };
 
   const updateScene = (index: number, patch: Partial<Scene>) => {
@@ -222,7 +237,7 @@ export default function VideoEditor({
           <Grid container>
             {/* Main area: Preview + Timeline */}
             <Grid item xs={12} lg={8} sx={{ p: 2 }}>
-              <RemotionPlayer scenes={scenes} onTimeUpdate={handleTimeUpdate} />
+              <RemotionPlayer scenes={scenes} onTimeUpdate={handleTimeUpdate} seekRequest={seekRequest} />
 
               <Box sx={{ mt: 2 }}>
                 <Timeline
@@ -230,7 +245,7 @@ export default function VideoEditor({
                   totalDuration={totalDuration}
                   currentTime={currentTime}
                   onTimeChange={handleTimeChange}
-                  onSelectScene={setSelectedSceneIndex}
+                  onSelectScene={handleSelectScene}
                   selectedSceneIndex={selectedSceneIndex}
                 />
               </Box>
@@ -274,7 +289,7 @@ export default function VideoEditor({
                   <SceneList
                     scenes={scenes}
                     selectedIndex={selectedSceneIndex}
-                    onSelectScene={setSelectedSceneIndex}
+                    onSelectScene={handleSelectScene}
                     onUpdateScene={updateScene}
                     onMoveScene={moveScene}
                     onRemoveScene={removeScene}

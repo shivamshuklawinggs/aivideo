@@ -20,9 +20,10 @@ import { Scene, FPS, WIDTH, HEIGHT } from './types';
 interface RemotionPlayerProps {
   scenes: Scene[];
   onTimeUpdate?: (frame: number) => void;
+  seekRequest?: { frame: number; nonce: number };
 }
 
-export default function RemotionPlayer({ scenes, onTimeUpdate }: RemotionPlayerProps) {
+export default function RemotionPlayer({ scenes, onTimeUpdate, seekRequest }: RemotionPlayerProps) {
   const playerRef = useRef<PlayerRef>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(0);
@@ -55,6 +56,15 @@ export default function RemotionPlayer({ scenes, onTimeUpdate }: RemotionPlayerP
       cancelAnimationFrame(animFrameRef.current);
     };
   }, [onTimeUpdate]);
+
+  // Handle external seek requests (e.g. clicking a scene in SceneList)
+  useEffect(() => {
+    if (!seekRequest) return;
+    const player = playerRef.current;
+    if (!player) return;
+    player.seekTo(seekRequest.frame);
+    setCurrentFrame(seekRequest.frame);
+  }, [seekRequest]);
 
   const handlePlayPause = useCallback(() => {
     const player = playerRef.current;
