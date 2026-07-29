@@ -157,7 +157,7 @@ export default function MyPage() {
                     <Box display="flex" gap={1} flexWrap="wrap" mb={1}>
                       <Chip label={webtoon.status} size="small" color={getStatusColor(webtoon.status)} />
                       <Chip label={`${webtoon.chapters?.totalCount ?? 0} chapters`} size="small" variant="outlined" />
-                      {webtoon.unreadCount > 0 && (
+                      {webtoon && webtoon?.unreadCount && webtoon.unreadCount > 0 && (
                         <Chip 
                           label={`${webtoon.unreadCount} unread`} 
                           size="small" 
