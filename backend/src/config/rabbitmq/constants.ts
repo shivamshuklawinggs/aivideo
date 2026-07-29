@@ -12,14 +12,18 @@ export const QUEUE_NAMES = {
     AI_SCRIPT_GENERATION: 'ai-script-generation',
     AI_VOICE_SYNTHESIS: 'ai-voice-synthesis',
     AI_PANEL_ANALYSIS: 'ai-panel-analysis',
-    AI_BATCH_PROCESSING: 'ai-batch-processing'
+    AI_BATCH_PROCESSING: 'ai-batch-processing',
+    // Voice Recording Queues
+    RECORDINGS_MERGE: 'recordings-merge',
 };
 
 export const EXCHANGE_NAMES = {
     Email: 'email-exchange',
     // AI Video Processing Exchanges
     AI_VIDEO: 'ai-video-exchange',
-    AI_WORKER: 'ai-worker-exchange'
+    AI_WORKER: 'ai-worker-exchange',
+    // Voice Recording Exchanges
+    RECORDINGS: 'recordings-exchange',
 };
 
 export const ROUTING_KEYS = {
@@ -41,5 +45,8 @@ export const ROUTING_KEYS = {
         VOICE_SYNTHESIS: 'ai-worker.voice-synthesis',
         PANEL_ANALYSIS: 'ai-worker.panel-analysis',
         BATCH_PROCESSING: 'ai-worker.batch-processing',
+    },
+    RECORDINGS: {
+        MERGE: 'recordings.merge',
     },
 };

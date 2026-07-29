@@ -2,6 +2,7 @@ import { rabbitMQService } from './rabbitmq.service';
 import { QUEUE_NAMES } from './constants';
 import logger from '../logger';
 import { toNumericId } from '../../utils/numericId';
+import recordingsService from '../../services/recordingsService';
 
 const handleDataViaRoutingKey = async (data: any, routingKey: string) => {
     try {
@@ -38,6 +39,11 @@ const handleDataViaRoutingKey = async (data: any, routingKey: string) => {
                 const timelineService = (await import('../../services/timelineService')).default;
                 await timelineService.generateSRT(chapterId);
                 await timelineService.generateVTT(chapterId);
+                break;
+
+            case 'recordings.merge':
+                // Merge panel recordings into chapter audio
+                await recordingsService.mergeChapterAudio(toNumericId(data.chapterId));
                 break;
 
             default:

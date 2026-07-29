@@ -1,5 +1,5 @@
 import { Channel } from "amqplib";
-import { EXCHANGE_NAMES, QUEUE_NAMES } from "./constants";
+import { EXCHANGE_NAMES, QUEUE_NAMES, ROUTING_KEYS } from "./constants";
 /**
  * ✅ Auto setup everything dynamically
  */
@@ -55,5 +55,9 @@ export default class RabbitQueuesExchangesSetup {
        
        await channel.assertQueue(QUEUE_NAMES.AI_BATCH_PROCESSING, { durable: true });
        await channel.bindQueue(QUEUE_NAMES.AI_BATCH_PROCESSING, EXCHANGE_NAMES.AI_WORKER, 'ai-worker.batch-processing');
+
+       // Voice Recording Queues
+       await channel.assertQueue(QUEUE_NAMES.RECORDINGS_MERGE, { durable: true });
+       await channel.bindQueue(QUEUE_NAMES.RECORDINGS_MERGE, EXCHANGE_NAMES.RECORDINGS, ROUTING_KEYS.RECORDINGS.MERGE);
   }
 }

@@ -31,6 +31,7 @@
     "express-async-handler": "^1.2.0",
     "express-rate-limit": "^7.1.5",
     "express-validator": "^7.0.1",
+    "fluent-ffmpeg": "^2.1.2",
     "fs-extra": "^11.3.5",
     "graphql": "^16.14.2",
     "graphql-tag": "^2.12.7",
